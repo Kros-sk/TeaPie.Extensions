@@ -1,0 +1,246 @@
+{
+  "name": "teapie-extensions",
+  "displayName": "TeaPie Extensions",
+  "description": "Run TeaPie tests directly from VS Code",
+  "version": "0.0.4",
+  "publisher": "local",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/teapie-extensions"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/*.http",
+    "onCommand:teapie-extensions.runDirectory",
+    "onCommand:teapie-extensions.runFile",
+    "onCommand:teapie-extensions.runToFile",
+    "onCommand:teapie-extensions.cycleTestFiles",
+    "onCommand:teapie-extensions.nextTestCase",
+    "onCommand:teapie-extensions.nextTestCaseWithSubdirs",
+    "onCommand:teapie-extensions.generateTestCase"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "teapie-extensions.runDirectory",
+        "title": "TeaPie: Run Directory"
+      },
+      {
+        "command": "teapie-extensions.runFile",
+        "title": "TeaPie: Run File"
+      },
+      {
+        "command": "teapie-extensions.runToFile",
+        "title": "TeaPie: Run To File"
+      },
+      {
+        "command": "teapie-extensions.cycleTestFiles",
+        "title": "TeaPie: Cycle Test Files"
+      },
+      {
+        "command": "teapie-extensions.nextTestCase",
+        "title": "TeaPie: Next Test Case"
+      },
+      {
+        "command": "teapie-extensions.nextTestCaseWithSubdirs",
+        "title": "TeaPie: Next Test Case (Include Subdirectories)"
+      },
+      {
+        "command": "teapie-extensions.generateTestCase",
+        "title": "TeaPie: Generate New Test Case"
+      },
+      {
+        "command": "teapie-extensions.exploreCollection",
+        "title": "TeaPie: Explore Collection"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "teapie-extensions.cycleTestFiles",
+        "key": "f7",
+        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
+      },
+      {
+        "command": "teapie-extensions.nextTestCase",
+        "key": "alt+f7",
+        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
+      },
+      {
+        "command": "teapie-extensions.nextTestCaseWithSubdirs",
+        "key": "ctrl+alt+f7",
+        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "teapie-extensions.runDirectory",
+          "group": "teapie",
+          "when": "explorerResourceIsFolder"
+        },
+        {
+          "command": "teapie-extensions.runFile",
+          "group": "teapie",
+          "when": "resourceExtname == .http || resourceExtname == .csx"
+        },
+        {
+          "command": "teapie-extensions.runToFile",
+          "group": "teapie",
+          "when": "resourceExtname == .http || resourceExtname == .csx"
+        },
+        {
+          "command": "teapie-extensions.generateTestCase",
+          "group": "teapie",
+          "when": "explorerResourceIsFolder"
+        },
+        {
+          "command": "teapie-extensions.exploreCollection",
+          "group": "teapie",
+          "when": "explorerResourceIsFolder"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "teapie-extensions.runFile",
+          "when": "resourceFilename =~ /\\.(csx|http)$/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "teapie-extensions.runToFile",
+          "when": "resourceFilename =~ /\\.(csx|http)$/",
+          "group": "navigation@2"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "18.x",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "acorn": "^8.14.1",
+    "acorn-jsx": "^5.3.2",
+    "ajv": "^6.12.6",
+    "ansi-regex": "^5.0.1",
+    "ansi-styles": "^4.3.0",
+    "argparse": "^2.0.1",
+    "array-union": "^2.1.0",
+    "balanced-match": "^1.0.2",
+    "brace-expansion": "^2.0.1",
+    "braces": "^3.0.3",
+    "callsites": "^3.1.0",
+    "chalk": "^4.1.2",
+    "color-convert": "^2.0.1",
+    "color-name": "^1.1.4",
+    "concat-map": "^0.0.1",
+    "cross-spawn": "^7.0.6",
+    "debug": "^4.4.0",
+    "deep-is": "^0.1.4",
+    "dir-glob": "^3.0.1",
+    "doctrine": "^3.0.0",
+    "escape-string-regexp": "^4.0.0",
+    "eslint-scope": "^7.2.2",
+    "eslint-visitor-keys": "^3.4.3",
+    "espree": "^9.6.1",
+    "esquery": "^1.6.0",
+    "esrecurse": "^4.3.0",
+    "estraverse": "^5.3.0",
+    "esutils": "^2.0.3",
+    "fast-deep-equal": "^3.1.3",
+    "fast-glob": "^3.3.3",
+    "fast-json-stable-stringify": "^2.1.0",
+    "fast-levenshtein": "^2.0.6",
+    "fastq": "^1.19.1",
+    "file-entry-cache": "^6.0.1",
+    "fill-range": "^7.1.1",
+    "find-up": "^5.0.0",
+    "flat-cache": "^3.2.0",
+    "flatted": "^3.3.3",
+    "fs.realpath": "^1.0.0",
+    "glob": "^7.2.3",
+    "glob-parent": "^6.0.2",
+    "globals": "^13.24.0",
+    "globby": "^11.1.0",
+    "graphemer": "^1.4.0",
+    "has-flag": "^4.0.0",
+    "ignore": "^5.3.2",
+    "import-fresh": "^3.3.1",
+    "imurmurhash": "^0.1.4",
+    "inflight": "^1.0.6",
+    "inherits": "^2.0.4",
+    "is-extglob": "^2.1.1",
+    "is-glob": "^4.0.3",
+    "is-number": "^7.0.0",
+    "is-path-inside": "^3.0.3",
+    "isexe": "^2.0.0",
+    "js-yaml": "^4.1.0",
+    "json-buffer": "^3.0.1",
+    "json-schema-traverse": "^0.4.1",
+    "json-stable-stringify-without-jsonify": "^1.0.1",
+    "keyv": "^4.5.4",
+    "levn": "^0.4.1",
+    "locate-path": "^6.0.0",
+    "lodash.merge": "^4.6.2",
+    "merge2": "^1.4.1",
+    "micromatch": "^4.0.8",
+    "minimatch": "^9.0.3",
+    "ms": "^2.1.3",
+    "natural-compare": "^1.4.0",
+    "once": "^1.4.0",
+    "optionator": "^0.9.4",
+    "p-limit": "^3.1.0",
+    "p-locate": "^5.0.0",
+    "parent-module": "^1.0.1",
+    "path-exists": "^4.0.0",
+    "path-is-absolute": "^1.0.1",
+    "path-key": "^3.1.1",
+    "path-type": "^4.0.0",
+    "picomatch": "^2.3.1",
+    "prelude-ls": "^1.2.1",
+    "punycode": "^2.3.1",
+    "queue-microtask": "^1.2.3",
+    "resolve-from": "^4.0.0",
+    "reusify": "^1.1.0",
+    "rimraf": "^3.0.2",
+    "run-parallel": "^1.2.0",
+    "semver": "^7.7.1",
+    "shebang-command": "^2.0.0",
+    "shebang-regex": "^3.0.0",
+    "slash": "^3.0.0",
+    "strip-ansi": "^6.0.1",
+    "strip-json-comments": "^3.1.1",
+    "supports-color": "^7.2.0",
+    "text-table": "^0.2.0",
+    "to-regex-range": "^5.0.1",
+    "ts-api-utils": "^1.4.3",
+    "type-check": "^0.4.0",
+    "type-fest": "^0.20.2",
+    "undici-types": "^5.26.5",
+    "uri-js": "^4.4.1",
+    "which": "^2.0.2",
+    "word-wrap": "^1.2.5",
+    "wrappy": "^1.0.2",
+    "yocto-queue": "^0.1.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
