@@ -64,17 +64,18 @@ export function activate(context: vscode.ExtensionContext) {
     // Add file open command
     let openFileDisposable = vscode.commands.registerCommand('teapie-extensions.openFile', async (item: TeaPieTreeItem) => {
         try {
-            console.log('Opening file, received item:', {
-                type: item?.constructor?.name,
-                label: item?.label,
-                resourceUri: item?.resourceUri
-            });
-
             if (!item?.resourceUri) {
                 throw new Error('No resourceUri in item');
             }
 
-            const document = await vscode.workspace.openTextDocument(item.resourceUri);
+            // For test cases, open the request file
+            // For other items, open their own file
+            const uri = item.contextValue === 'testCase' ? item.httpFileUri : item.resourceUri;
+            if (!uri) {
+                throw new Error('No file URI available');
+            }
+
+            const document = await vscode.workspace.openTextDocument(uri);
             await vscode.window.showTextDocument(document, { 
                 preview: false,
                 viewColumn: vscode.ViewColumn.Active
@@ -85,38 +86,49 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let disposable = vscode.commands.registerCommand('teapie-extensions.runDirectory', async (uri: vscode.Uri) => {
+    let disposable = vscode.commands.registerCommand('teapie-extensions.runDirectory', async (item: TeaPieTreeItem | vscode.Uri) => {
         try {
-            const directory = uri.fsPath;
-            await runTeaPieCommand('run', directory);
+            let targetPath: string;
+            if (item instanceof vscode.Uri) {
+                targetPath = item.fsPath;
+            } else if (item?.resourceUri) {
+                targetPath = item.resourceUri.fsPath;
+            } else {
+                throw new Error('No resourceUri in item');
+            }
+            await runTeaPieCommand('test', targetPath);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to run TeaPie tests: ${error}`);
         }
     });
 
-    let runFileDisposable = vscode.commands.registerCommand('teapie-extensions.runFile', async (uri: vscode.Uri) => {
+    let runFileDisposable = vscode.commands.registerCommand('teapie-extensions.runFile', async (item: TeaPieTreeItem | vscode.Uri) => {
         try {
-            const filePath = uri.fsPath;
-            const httpFile = findHttpFile(filePath);
-            if (httpFile) {
-                await runTeaPieCommand('run', httpFile);
+            let targetPath: string;
+            if (item instanceof vscode.Uri) {
+                targetPath = item.fsPath;
+            } else if (item?.httpFileUri) {
+                targetPath = item.httpFileUri.fsPath;
             } else {
-                vscode.window.showErrorMessage('No corresponding .http file found for this test case');
+                throw new Error('No HTTP file available');
             }
+            await runTeaPieCommand('test', targetPath);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to run TeaPie test: ${error}`);
         }
     });
 
-    let runToFileDisposable = vscode.commands.registerCommand('teapie-extensions.runToFile', async (uri: vscode.Uri) => {
+    let runToFileDisposable = vscode.commands.registerCommand('teapie-extensions.runToFile', async (item: TeaPieTreeItem | vscode.Uri) => {
         try {
-            const filePath = uri.fsPath;
-            const httpFile = findHttpFile(filePath);
-            if (httpFile) {
-                await runTeaPieCommand('run-to', httpFile);
+            let targetPath: string;
+            if (item instanceof vscode.Uri) {
+                targetPath = item.fsPath;
+            } else if (item?.httpFileUri) {
+                targetPath = item.httpFileUri.fsPath;
             } else {
-                vscode.window.showErrorMessage('No corresponding .http file found for this test case');
+                throw new Error('No HTTP file available');
             }
+            await runTeaPieCommand('test-to', targetPath);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to run TeaPie tests up to file: ${error}`);
         }

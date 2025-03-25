@@ -48,15 +48,18 @@
     "commands": [
       {
         "command": "teapie-extensions.runDirectory",
-        "title": "TeaPie: Run Directory"
+        "title": "TeaPie: Run Tests",
+        "icon": "$(play)"
       },
       {
         "command": "teapie-extensions.runFile",
-        "title": "TeaPie: Run File"
+        "title": "TeaPie: Run Test",
+        "icon": "$(play)"
       },
       {
         "command": "teapie-extensions.runToFile",
-        "title": "TeaPie: Run To File"
+        "title": "TeaPie: Run Tests To Here",
+        "icon": "$(debug-continue)"
       },
       {
         "command": "teapie-extensions.cycleTestFiles",
@@ -84,7 +87,8 @@
       },
       {
         "command": "teapie-extensions.openFile",
-        "title": "TeaPie: Open File"
+        "title": "Open File",
+        "icon": "$(go-to-file)"
       }
     ],
     "menus": {
@@ -98,44 +102,49 @@
       "view/item/context": [
         {
           "command": "teapie-extensions.openFile",
-          "when": "view == teapieExplorer && viewItem =~ /(initFile|testFile|httpFile)/",
+          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == initFile || viewItem == testFile || viewItem == testCase)",
           "group": "inline"
         },
         {
           "command": "teapie-extensions.runFile",
-          "when": "view == teapieExplorer && viewItem =~ /(initFile|testFile|httpFile)/",
+          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == testCase)",
           "group": "inline"
         },
         {
           "command": "teapie-extensions.runToFile",
-          "when": "view == teapieExplorer && viewItem =~ /(initFile|testFile|httpFile)/",
+          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == testCase)",
+          "group": "inline"
+        },
+        {
+          "command": "teapie-extensions.runDirectory",
+          "when": "view == teapieExplorer && viewItem == directory",
           "group": "inline"
         }
       ],
       "explorer/context": [
         {
           "command": "teapie-extensions.runDirectory",
-          "group": "teapie",
+          "group": "teapie@1",
           "when": "explorerResourceIsFolder"
         },
         {
           "command": "teapie-extensions.runFile",
-          "group": "teapie",
-          "when": "resourceExtname == .http || resourceExtname == .csx"
+          "group": "teapie@2",
+          "when": "resourceFilename =~ /.*-req\\.http$/ || resourceFilename =~ /.*-test\\.csx$/"
         },
         {
           "command": "teapie-extensions.runToFile",
-          "group": "teapie",
-          "when": "resourceExtname == .http || resourceExtname == .csx"
+          "group": "teapie@3",
+          "when": "resourceFilename =~ /.*-req\\.http$/ || resourceFilename =~ /.*-test\\.csx$/"
         },
         {
           "command": "teapie-extensions.generateTestCase",
-          "group": "teapie",
+          "group": "teapie@4",
           "when": "explorerResourceIsFolder"
         },
         {
           "command": "teapie-extensions.exploreCollection",
-          "group": "teapie",
+          "group": "teapie@5",
           "when": "explorerResourceIsFolder"
         }
       ],

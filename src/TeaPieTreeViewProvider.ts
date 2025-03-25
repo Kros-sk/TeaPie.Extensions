@@ -2,6 +2,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+interface TestCase {
+    name: string;
+    files: {
+        init?: string;
+        request?: string;
+        test?: string;
+    };
+    directory: string;
+}
+
 export class TeaPieTreeViewProvider implements vscode.TreeDataProvider<TeaPieTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<TeaPieTreeItem | undefined | null | void> = new vscode.EventEmitter<TeaPieTreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<TeaPieTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
@@ -26,6 +36,10 @@ export class TeaPieTreeViewProvider implements vscode.TreeDataProvider<TeaPieTre
             return this.getRootItems();
         }
 
+        if (element.contextValue === 'testCase') {
+            return this.getTestCaseFiles(element);
+        }
+
         if (!element.resourceUri) {
             console.error('TreeItem has no resourceUri:', element);
             return [];
@@ -43,11 +57,19 @@ export class TeaPieTreeViewProvider implements vscode.TreeDataProvider<TeaPieTre
         return items;
     }
 
+    private formatPascalCase(text: string): string {
+        // Replace PascalCase with spaces, but keep acronyms together
+        return text.replace(/([A-Z])([A-Z])([a-z])|([a-z])([A-Z])/g, '$1$4 $2$3$5');
+    }
+
     private async getDirectoryItems(dirPath: string): Promise<TeaPieTreeItem[]> {
         try {
             console.log('Getting directory items for:', dirPath);
             const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
             const items: TeaPieTreeItem[] = [];
+
+            // First, collect all test cases in this directory
+            const testCases = new Map<string, TestCase>();
 
             for (const entry of entries) {
                 const fullPath = path.join(dirPath, entry.name);
@@ -61,74 +83,101 @@ export class TeaPieTreeViewProvider implements vscode.TreeDataProvider<TeaPieTre
                     // Check if directory contains test files
                     const hasTestFiles = await this.hasTestFiles(fullPath);
                     if (hasTestFiles) {
-                        console.log('Creating directory item:', {
-                            name: entry.name,
-                            path: fullPath
-                        });
                         const uri = vscode.Uri.file(fullPath);
-                        console.log('Created Uri for directory:', {
-                            scheme: uri.scheme,
-                            path: uri.fsPath,
-                            uri: uri.toString()
-                        });
-                        const item = new TeaPieTreeItem(
+                        items.push(new TeaPieTreeItem(
                             entry.name,
                             uri,
                             vscode.TreeItemCollapsibleState.Collapsed
-                        );
-                        console.log('Created directory TreeItem:', {
-                            label: item.label,
-                            resourceUri: item.resourceUri instanceof vscode.Uri ? {
-                                scheme: item.resourceUri.scheme,
-                                path: item.resourceUri.fsPath,
-                                uri: item.resourceUri.toString()
-                            } : 'Not a Uri',
-                            collapsibleState: item.collapsibleState
-                        });
-                        items.push(item);
+                        ));
                     }
                 } else if (this.isTestFile(entry.name)) {
-                    console.log('Creating file item:', {
-                        name: entry.name,
-                        path: fullPath
-                    });
-                    const uri = vscode.Uri.file(fullPath);
-                    console.log('Created Uri for file:', {
-                        scheme: uri.scheme,
-                        path: uri.fsPath,
-                        uri: uri.toString()
-                    });
-                    const item = new TeaPieTreeItem(
-                        entry.name,
-                        uri,
-                        vscode.TreeItemCollapsibleState.None
-                    );
-                    console.log('Created file TreeItem:', {
-                        label: item.label,
-                        resourceUri: item.resourceUri instanceof vscode.Uri ? {
-                            scheme: item.resourceUri.scheme,
-                            path: item.resourceUri.fsPath,
-                            uri: item.resourceUri.toString()
-                        } : 'Not a Uri',
-                        collapsibleState: item.collapsibleState,
-                        command: item.command
-                    });
-                    items.push(item);
+                    // Extract test case name and type
+                    const match = entry.name.match(/^(.+?)-(init|req|test)\.(csx|http)$/);
+                    if (match) {
+                        const [, name, type] = match;
+                        if (!testCases.has(name)) {
+                            testCases.set(name, {
+                                name,
+                                files: {},
+                                directory: dirPath
+                            });
+                        }
+                        const testCase = testCases.get(name)!;
+                        switch (type) {
+                            case 'init':
+                                testCase.files.init = fullPath;
+                                break;
+                            case 'req':
+                                testCase.files.request = fullPath;
+                                break;
+                            case 'test':
+                                testCase.files.test = fullPath;
+                                break;
+                        }
+                    }
                 }
             }
 
+            // Create test case items
+            for (const [name, testCase] of testCases) {
+                const item = new TeaPieTreeItem(
+                    this.formatPascalCase(name),  // Format the display name
+                    vscode.Uri.file(testCase.directory),
+                    vscode.TreeItemCollapsibleState.Collapsed,
+                    'testCase'
+                );
+                item.testCase = testCase;
+                items.push(item);
+            }
+
             return items.sort((a, b) => {
-                // Directories first, then files
-                if (a.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed && 
-                    b.collapsibleState === vscode.TreeItemCollapsibleState.None) return -1;
-                if (a.collapsibleState === vscode.TreeItemCollapsibleState.None && 
-                    b.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) return 1;
+                // Directories first, then test cases
+                if (a.contextValue === 'testCase' && b.contextValue !== 'testCase') return 1;
+                if (a.contextValue !== 'testCase' && b.contextValue === 'testCase') return -1;
                 return a.label.localeCompare(b.label);
             });
         } catch (error) {
             console.error('Error reading directory:', error);
             return [];
         }
+    }
+
+    private async getTestCaseFiles(element: TeaPieTreeItem): Promise<TeaPieTreeItem[]> {
+        if (!element.testCase) {
+            return [];
+        }
+
+        const items: TeaPieTreeItem[] = [];
+        const { files } = element.testCase;
+
+        if (files.init) {
+            const uri = vscode.Uri.file(files.init);
+            items.push(new TeaPieTreeItem(
+                'Initialize',
+                uri,
+                vscode.TreeItemCollapsibleState.None
+            ));
+        }
+
+        if (files.request) {
+            const uri = vscode.Uri.file(files.request);
+            items.push(new TeaPieTreeItem(
+                'Request',
+                uri,
+                vscode.TreeItemCollapsibleState.None
+            ));
+        }
+
+        if (files.test) {
+            const uri = vscode.Uri.file(files.test);
+            items.push(new TeaPieTreeItem(
+                'Test',
+                uri,
+                vscode.TreeItemCollapsibleState.None
+            ));
+        }
+
+        return items;
     }
 
     private async hasTestFiles(dirPath: string): Promise<boolean> {
@@ -160,88 +209,79 @@ export class TeaPieTreeViewProvider implements vscode.TreeDataProvider<TeaPieTre
 }
 
 export class TeaPieTreeItem extends vscode.TreeItem {
+    public testCase?: TestCase;
+
     constructor(
         public readonly label: string,
         resourceUri: vscode.Uri,
-        public readonly collapsibleState: vscode.TreeItemCollapsibleState
+        public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+        public readonly itemType?: 'directory' | 'testCase' | 'initFile' | 'httpFile' | 'testFile'
     ) {
         super(resourceUri, collapsibleState);
         
-        console.log('Creating TreeItem:', {
-            label,
-            resourceUri: resourceUri instanceof vscode.Uri ? {
-                scheme: resourceUri.scheme,
-                path: resourceUri.fsPath,
-                uri: resourceUri.toString()
-            } : 'Not a Uri',
-            collapsibleState
-        });
-        
-        this.label = label;
         this.tooltip = this.label;
         this.description = this.getDescription();
+        this.contextValue = itemType || this.getContextValue();
         this.iconPath = this.getIconPath();
-        this.contextValue = this.getContextValue();
         
+        // Set up commands based on item type
         if (!this.isDirectory) {
-            console.log('Setting up command for file:', {
-                uri: resourceUri instanceof vscode.Uri ? resourceUri.toString() : 'Not a Uri'
-            });
             this.command = {
                 command: 'teapie-extensions.openFile',
                 title: 'Open File',
-                arguments: [resourceUri]
+                arguments: [this]
             };
         }
     }
 
     get isDirectory(): boolean {
-        return this.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed;
+        return this.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed && this.contextValue !== 'testCase';
     }
 
-    private getDescription(): string {
-        if (this.isDirectory) {
-            return '';
+    get httpFileUri(): vscode.Uri | undefined {
+        if (this.contextValue === 'httpFile') {
+            return this.resourceUri;
         }
-        const ext = path.extname(this.label);
-        switch (ext) {
-            case '.csx':
-                return this.label.includes('-init') ? 'Initialization' : 'Test';
-            case '.http':
-                return 'Request';
-            default:
-                return '';
+        if (this.contextValue === 'testCase' && this.testCase?.files.request) {
+            return vscode.Uri.file(this.testCase.files.request);
         }
+        return undefined;
     }
 
-    private getIconPath(): vscode.ThemeIcon | undefined {
+    private getDescription(): string | undefined {
+        if (this.contextValue === 'testCase') {
+            return 'Test Case';
+        }
+        if (this.label === 'Initialize') return 'Init';
+        if (this.label === 'Request') return 'Request';
+        if (this.label === 'Test') return 'Test';
+        return undefined;
+    }
+
+    private getIconPath(): vscode.ThemeIcon {
         if (this.isDirectory) {
             return new vscode.ThemeIcon('folder');
         }
-
-        const ext = path.extname(this.label);
-        switch (ext) {
-            case '.csx':
-                return new vscode.ThemeIcon('symbol-misc');
-            case '.http':
-                return new vscode.ThemeIcon('symbol-interface');
-            default:
-                return undefined;
+        if (this.contextValue === 'testCase') {
+            return new vscode.ThemeIcon('beaker', new vscode.ThemeColor('testing.iconPassed'));
         }
+        if (this.label === 'Initialize') {
+            return new vscode.ThemeIcon('debug-start');
+        }
+        if (this.label === 'Request') {
+            return new vscode.ThemeIcon('arrow-right');
+        }
+        if (this.label === 'Test') {
+            return new vscode.ThemeIcon('check');
+        }
+        return new vscode.ThemeIcon('file');
     }
 
     private getContextValue(): string {
-        if (this.isDirectory) {
-            return 'directory';
-        }
-        const ext = path.extname(this.label);
-        switch (ext) {
-            case '.csx':
-                return this.label.includes('-init') ? 'initFile' : 'testFile';
-            case '.http':
-                return 'httpFile';
-            default:
-                return 'file';
-        }
+        if (this.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) return 'directory';
+        if (this.label === 'Initialize') return 'initFile';
+        if (this.label === 'Request') return 'httpFile';
+        if (this.label === 'Test') return 'testFile';
+        return 'file';
     }
 } 
