@@ -89,6 +89,11 @@
         "command": "teapie-extensions.openFile",
         "title": "Open File",
         "icon": "$(go-to-file)"
+      },
+      {
+        "command": "teapie-extensions.previewHttpFile",
+        "title": "TeaPie: Preview HTTP File",
+        "icon": "$(preview)"
       }
     ],
     "menus": {
@@ -146,6 +151,11 @@
           "command": "teapie-extensions.exploreCollection",
           "group": "teapie@5",
           "when": "explorerResourceIsFolder"
+        },
+        {
+          "command": "teapie-extensions.previewHttpFile",
+          "group": "teapie@6",
+          "when": "resourceExtname == .http"
         }
       ],
       "editor/context": [
@@ -158,6 +168,11 @@
           "command": "teapie-extensions.runToFile",
           "when": "resourceFilename =~ /\\.(csx|http)$/",
           "group": "navigation@2"
+        },
+        {
+          "command": "teapie-extensions.previewHttpFile",
+          "when": "resourceExtname == .http",
+          "group": "navigation@3"
         }
       ]
     },

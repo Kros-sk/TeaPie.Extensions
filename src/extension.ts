@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 
 import { TeaPieTreeItem, TeaPieTreeViewProvider } from './TeaPieTreeViewProvider';
 
+import { HttpPreviewProvider } from './HttpPreviewProvider';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -328,8 +329,29 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // Register Preview Command
+    let previewHttpFileDisposable = vscode.commands.registerCommand('teapie-extensions.previewHttpFile', async (uri: vscode.Uri) => {
+        try {
+            // If no URI is provided, try to get it from the active editor
+            if (!uri) {
+                const editor = vscode.window.activeTextEditor;
+                if (!editor) {
+                    throw new Error('No active editor');
+                }
+                uri = editor.document.uri;
+            }
+
+            // Show preview
+            HttpPreviewProvider.show(uri);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to preview HTTP file: ${error}`);
+        }
+    });
+
     context.subscriptions.push(
         treeView,
+        refreshDisposable,
+        openFileDisposable,
         disposable,
         runFileDisposable,
         runToFileDisposable,
@@ -338,8 +360,7 @@ export function activate(context: vscode.ExtensionContext) {
         nextTestCaseWithSubdirsDisposable,
         generateTestCaseDisposable,
         exploreCollectionDisposable,
-        refreshDisposable,
-        openFileDisposable
+        previewHttpFileDisposable
     );
 }
 
