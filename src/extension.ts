@@ -2,12 +2,89 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import { TeaPieTreeItem, TeaPieTreeViewProvider } from './TeaPieTreeViewProvider';
+
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
 export function activate(context: vscode.ExtensionContext) {
+    // Register Tree View Provider
+    const treeViewProvider = new TeaPieTreeViewProvider(vscode.workspace.workspaceFolders?.[0].uri.fsPath);
+    const treeView = vscode.window.createTreeView('teapieExplorer', {
+        treeDataProvider: treeViewProvider,
+        showCollapseAll: true
+    });
+
+    // Handle tree view selection
+    treeView.onDidChangeSelection(async event => {
+        console.log('Selection changed:', event.selection);
+        const item = event.selection[0] as TeaPieTreeItem;
+        console.log('Selected item:', {
+            label: item?.label,
+            resourceUri: item?.resourceUri,
+            isDirectory: item?.isDirectory,
+            collapsibleState: item?.collapsibleState,
+            description: item?.description,
+            tooltip: item?.tooltip
+        });
+        
+        if (item && !item.isDirectory && item.resourceUri) {
+            try {
+                console.log('Attempting to open file:', {
+                    fsPath: item.resourceUri.fsPath,
+                    path: item.resourceUri.path,
+                    scheme: item.resourceUri.scheme,
+                    authority: item.resourceUri.authority
+                });
+                
+                const document = await vscode.workspace.openTextDocument(item.resourceUri);
+                console.log('Document opened:', document.uri.fsPath);
+                
+                await vscode.window.showTextDocument(document, { 
+                    preview: false,
+                    viewColumn: vscode.ViewColumn.Active
+                });
+                console.log('Document shown in editor');
+            } catch (error) {
+                console.error('Failed to open file:', error);
+                vscode.window.showErrorMessage(`Failed to open file: ${error}`);
+            }
+        } else {
+            console.log('Item is either null, a directory, or has no resourceUri');
+        }
+    });
+
+    // Add refresh command
+    let refreshDisposable = vscode.commands.registerCommand('teapie-extensions.refreshExplorer', () => {
+        treeViewProvider.refresh();
+    });
+
+    // Add file open command
+    let openFileDisposable = vscode.commands.registerCommand('teapie-extensions.openFile', async (item: TeaPieTreeItem) => {
+        try {
+            console.log('Opening file, received item:', {
+                type: item?.constructor?.name,
+                label: item?.label,
+                resourceUri: item?.resourceUri
+            });
+
+            if (!item?.resourceUri) {
+                throw new Error('No resourceUri in item');
+            }
+
+            const document = await vscode.workspace.openTextDocument(item.resourceUri);
+            await vscode.window.showTextDocument(document, { 
+                preview: false,
+                viewColumn: vscode.ViewColumn.Active
+            });
+        } catch (error) {
+            console.error('Failed to open file:', error);
+            vscode.window.showErrorMessage(`Failed to open file: ${error}`);
+        }
+    });
+
     let disposable = vscode.commands.registerCommand('teapie-extensions.runDirectory', async (uri: vscode.Uri) => {
         try {
             const directory = uri.fsPath;
@@ -240,6 +317,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     context.subscriptions.push(
+        treeView,
         disposable,
         runFileDisposable,
         runToFileDisposable,
@@ -247,7 +325,9 @@ export function activate(context: vscode.ExtensionContext) {
         nextTestCaseDisposable,
         nextTestCaseWithSubdirsDisposable,
         generateTestCaseDisposable,
-        exploreCollectionDisposable
+        exploreCollectionDisposable,
+        refreshDisposable,
+        openFileDisposable
     );
 }
 

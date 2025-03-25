@@ -22,10 +22,29 @@
     "onCommand:teapie-extensions.cycleTestFiles",
     "onCommand:teapie-extensions.nextTestCase",
     "onCommand:teapie-extensions.nextTestCaseWithSubdirs",
-    "onCommand:teapie-extensions.generateTestCase"
+    "onCommand:teapie-extensions.generateTestCase",
+    "onCommand:teapie-extensions.refreshExplorer",
+    "onCommand:teapie-extensions.openFile"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "teapie-explorer",
+          "title": "TeaPie Explorer",
+          "icon": "resources/teapie.svg"
+        }
+      ]
+    },
+    "views": {
+      "teapie-explorer": [
+        {
+          "id": "teapieExplorer",
+          "name": "Test Cases"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "teapie-extensions.runDirectory",
@@ -58,26 +77,41 @@
       {
         "command": "teapie-extensions.exploreCollection",
         "title": "TeaPie: Explore Collection"
-      }
-    ],
-    "keybindings": [
-      {
-        "command": "teapie-extensions.cycleTestFiles",
-        "key": "f7",
-        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
       },
       {
-        "command": "teapie-extensions.nextTestCase",
-        "key": "alt+f7",
-        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
+        "command": "teapie-extensions.refreshExplorer",
+        "title": "TeaPie: Refresh Explorer"
       },
       {
-        "command": "teapie-extensions.nextTestCaseWithSubdirs",
-        "key": "ctrl+alt+f7",
-        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
+        "command": "teapie-extensions.openFile",
+        "title": "TeaPie: Open File"
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "teapie-extensions.refreshExplorer",
+          "when": "view == teapieExplorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "teapie-extensions.openFile",
+          "when": "view == teapieExplorer && viewItem =~ /(initFile|testFile|httpFile)/",
+          "group": "inline"
+        },
+        {
+          "command": "teapie-extensions.runFile",
+          "when": "view == teapieExplorer && viewItem =~ /(initFile|testFile|httpFile)/",
+          "group": "inline"
+        },
+        {
+          "command": "teapie-extensions.runToFile",
+          "when": "view == teapieExplorer && viewItem =~ /(initFile|testFile|httpFile)/",
+          "group": "inline"
+        }
+      ],
       "explorer/context": [
         {
           "command": "teapie-extensions.runDirectory",
@@ -117,7 +151,24 @@
           "group": "navigation@2"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "teapie-extensions.cycleTestFiles",
+        "key": "f7",
+        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
+      },
+      {
+        "command": "teapie-extensions.nextTestCase",
+        "key": "alt+f7",
+        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
+      },
+      {
+        "command": "teapie-extensions.nextTestCaseWithSubdirs",
+        "key": "ctrl+alt+f7",
+        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
