@@ -94,6 +94,11 @@
         "command": "teapie-extensions.previewHttpFile",
         "title": "TeaPie: Preview HTTP File",
         "icon": "$(preview)"
+      },
+      {
+        "command": "teapie-extensions.openVisualEditor",
+        "title": "TeaPie: Open Visual Editor",
+        "icon": "$(edit)"
       }
     ],
     "menus": {
@@ -156,6 +161,11 @@
           "command": "teapie-extensions.previewHttpFile",
           "group": "teapie@6",
           "when": "resourceExtname == .http"
+        },
+        {
+          "command": "teapie-extensions.openVisualEditor",
+          "group": "teapie@7",
+          "when": "resourceExtname == .http"
         }
       ],
       "editor/context": [
@@ -173,6 +183,11 @@
           "command": "teapie-extensions.previewHttpFile",
           "when": "resourceExtname == .http",
           "group": "navigation@3"
+        },
+        {
+          "command": "teapie-extensions.openVisualEditor",
+          "when": "resourceExtname == .http",
+          "group": "navigation@4"
         }
       ]
     },

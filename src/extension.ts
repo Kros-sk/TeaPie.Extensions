@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { TeaPieTreeItem, TeaPieTreeViewProvider } from './TeaPieTreeViewProvider';
 
 import { HttpPreviewProvider } from './HttpPreviewProvider';
+import { VisualTestEditorProvider } from './VisualTestEditorProvider';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -348,6 +349,29 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // Add visual editor command
+    let visualEditorDisposable = vscode.commands.registerCommand('teapie-extensions.openVisualEditor', async (uri: vscode.Uri) => {
+        try {
+            if (!uri) {
+                const editor = vscode.window.activeTextEditor;
+                if (!editor) {
+                    vscode.window.showErrorMessage('No active editor');
+                    return;
+                }
+                uri = editor.document.uri;
+            }
+
+            if (uri.scheme !== 'file' || !uri.fsPath.endsWith('.http')) {
+                vscode.window.showErrorMessage('Please open a .http file first');
+                return;
+            }
+
+            VisualTestEditorProvider.show(uri);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to open visual editor: ${error}`);
+        }
+    });
+
     context.subscriptions.push(
         treeView,
         refreshDisposable,
@@ -360,7 +384,8 @@ export function activate(context: vscode.ExtensionContext) {
         nextTestCaseWithSubdirsDisposable,
         generateTestCaseDisposable,
         exploreCollectionDisposable,
-        previewHttpFileDisposable
+        previewHttpFileDisposable,
+        visualEditorDisposable
     );
 }
 
