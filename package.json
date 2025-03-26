@@ -99,6 +99,26 @@
         "command": "teapie-extensions.openVisualEditor",
         "title": "TeaPie: Open Visual Editor",
         "icon": "$(edit)"
+      },
+      {
+        "command": "teapie.reload",
+        "title": "TeaPie: Reload Collection"
+      },
+      {
+        "command": "teapie.run",
+        "title": "TeaPie: Run test case"
+      },
+      {
+        "command": "teapie.runInTerminal",
+        "title": "TeaPie: Run test case in terminal"
+      },
+      {
+        "command": "teapie.reloadDocs",
+        "title": "TeaPie: Reload Documentation"
+      },
+      {
+        "command": "teapie.setupCsxSupport",
+        "title": "TeaPie: Setup C# Script Support"
       }
     ],
     "menus": {
@@ -207,7 +227,9 @@
         "key": "ctrl+alt+f7",
         "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
       }
-    ]
+    ],
+    "languages": [],
+    "grammars": []
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -218,14 +240,15 @@
     "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
     "@types/node": "18.x",
+    "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
     "eslint": "^8.56.0",
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "@types/xml2js": "^0.4.14",
     "acorn": "^8.14.1",
     "acorn-jsx": "^5.3.2",
     "ajv": "^6.12.6",
@@ -328,6 +351,7 @@
     "which": "^2.0.2",
     "word-wrap": "^1.2.5",
     "wrappy": "^1.0.2",
+    "xml2js": "^0.6.2",
     "yocto-queue": "^0.1.0"
   },
   "keywords": [],

@@ -1,0 +1,23 @@
+{
+    "name": "TeaPie CSX",
+    "scopeName": "source.csx",
+    "fileTypes": ["csx"],
+    "patterns": [
+        {
+            "include": "source.cs"
+        },
+        {
+            "name": "meta.directive.teapie",
+            "begin": "^\\s*(#)(load|nuget)\\b",
+            "end": "$",
+            "captures": {
+                "1": { "name": "punctuation.definition.directive.teapie" },
+                "2": { "name": "keyword.control.directive.teapie" }
+            }
+        },
+        {
+            "name": "variable.other.teapie",
+            "match": "\\b(tp)\\b"
+        }
+    ]
+} 

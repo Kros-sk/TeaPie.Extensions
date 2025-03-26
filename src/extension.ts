@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { TeaPieTreeItem, TeaPieTreeViewProvider } from './TeaPieTreeViewProvider';
 
 import { HttpPreviewProvider } from './HttpPreviewProvider';
+import { TeaPieLanguageServer } from './TeaPieLanguageServer';
 import { VisualTestEditorProvider } from './VisualTestEditorProvider';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -12,6 +13,32 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 export function activate(context: vscode.ExtensionContext) {
+    console.log('Activating TeaPie extension...');
+    
+    // Initialize the TeaPie language server
+    const server = TeaPieLanguageServer.getInstance(context);
+    server.initialize().then(() => {
+        console.log('TeaPie language server initialized successfully');
+    }).catch(error => {
+        console.error('Failed to initialize TeaPie language server:', error);
+    });
+    
+    // Register a command to reload XML documentation
+    context.subscriptions.push(
+        vscode.commands.registerCommand('teapie.reloadDocs', async () => {
+            await server.loadXmlDocumentation();
+            vscode.window.showInformationMessage('TeaPie documentation reloaded');
+        })
+    );
+
+    // Register command to set up OmniSharp for CSX files
+    context.subscriptions.push(
+        vscode.commands.registerCommand('teapie.setupCsxSupport', async () => {
+            await setupCsxSupport();
+            vscode.window.showInformationMessage('CSX support configured successfully');
+        })
+    );
+
     // Register Tree View Provider
     const treeViewProvider = new TeaPieTreeViewProvider(vscode.workspace.workspaceFolders?.[0].uri.fsPath);
     const treeView = vscode.window.createTreeView('teapieExplorer', {
@@ -500,4 +527,146 @@ async function runTeaPieCommand(command: string, target: string): Promise<void> 
     terminal.sendText(commandStr);
 }
 
-export function deactivate() {} 
+async function setupCsxSupport(): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage('No workspace folder is open');
+        return;
+    }
+
+    const workspacePath = workspaceFolder.uri.fsPath;
+    
+    try {
+        // Create omnisharp.json
+        const omnisharpConfig = {
+            script: {
+                enabled: true,
+                defaultTargetFramework: "net7.0",
+                enableScriptNuGetReferences: true
+            }
+        };
+        
+        await writeJsonFile(path.join(workspacePath, 'omnisharp.json'), omnisharpConfig);
+        
+        // Create global.json
+        const globalConfig = {
+            sdk: {
+                version: "8.0.100",
+                rollForward: "latestMinor"
+            }
+        };
+        
+        await writeJsonFile(path.join(workspacePath, 'global.json'), globalConfig);
+        
+        // Ensure .vscode directory exists
+        const vscodeDir = path.join(workspacePath, '.vscode');
+        if (!fs.existsSync(vscodeDir)) {
+            fs.mkdirSync(vscodeDir);
+        }
+        
+        // Create/update settings.json
+        const settingsPath = path.join(vscodeDir, 'settings.json');
+        let settingsConfig: any = {};
+        
+        if (fs.existsSync(settingsPath)) {
+            try {
+                const content = await fs.promises.readFile(settingsPath, 'utf8');
+                settingsConfig = JSON.parse(content);
+            } catch (error) {
+                console.error('Error reading settings.json:', error);
+            }
+        }
+        
+        // Update settings
+        const csxSettings = {
+            "omnisharp.enableRoslynAnalyzers": true,
+            "omnisharp.enableEditorConfigSupport": true,
+            "omnisharp.enableImportCompletion": true,
+            "omnisharp.useModernNet": true,
+            "csharp.referencesCodeLens.enabled": true,
+            "omnisharp.enableAsyncCompletion": true,
+            "omnisharp.organizeImportsOnFormat": true,
+            "dotnet.completion.showCompletionItemsFromUnimportedNamespaces": true
+        };
+        
+        // Merge settings
+        settingsConfig = { ...settingsConfig, ...csxSettings };
+        
+        await writeJsonFile(settingsPath, settingsConfig);
+        
+        // Create/update launch.json
+        const launchPath = path.join(vscodeDir, 'launch.json');
+        let launchConfig: any = {
+            version: "0.2.0",
+            configurations: []
+        };
+        
+        if (fs.existsSync(launchPath)) {
+            try {
+                const content = await fs.promises.readFile(launchPath, 'utf8');
+                launchConfig = JSON.parse(content);
+            } catch (error) {
+                console.error('Error reading launch.json:', error);
+            }
+        }
+        
+        // Add CSX debug configuration if it doesn't exist
+        const csxDebugConfig = {
+            name: "Debug C# Script",
+            type: "coreclr",
+            request: "launch",
+            program: "dotnet",
+            args: [
+                "script",
+                "${file}"
+            ],
+            cwd: "${workspaceFolder}",
+            stopAtEntry: false,
+            console: "internalConsole"
+        };
+        
+        // Check if config already exists
+        const configExists = launchConfig.configurations.some((config: any) => 
+            config.name === "Debug C# Script" && config.type === "coreclr");
+        
+        if (!configExists) {
+            launchConfig.configurations.push(csxDebugConfig);
+        }
+        
+        await writeJsonFile(launchPath, launchConfig);
+
+        // Create a sample.csx file with common imports if it doesn't exist
+        const sampleCsxPath = path.join(workspacePath, 'sample.csx');
+        if (!fs.existsSync(sampleCsxPath)) {
+            const sampleContent = `// Sample C# Script file
+#r "nuget: TeaPie.Tool, 1.0.0"
+#r "System.Net.Http"
+
+using System;
+using System.Threading.Tasks;
+using TeaPie;
+
+// Your TeaPie script goes here
+var tp = new TeaPie.TeaPie();
+
+// Example usage
+tp.SetVariable("example", "Hello TeaPie!");
+Console.WriteLine(tp.GetVariable<string>("example"));
+`;
+            await fs.promises.writeFile(sampleCsxPath, sampleContent, 'utf8');
+        }
+
+    } catch (error) {
+        console.error('Error setting up CSX support:', error);
+        vscode.window.showErrorMessage(`Failed to set up CSX support: ${error}`);
+    }
+}
+
+async function writeJsonFile(filePath: string, content: any): Promise<void> {
+    const jsonContent = JSON.stringify(content, null, 2);
+    await fs.promises.writeFile(filePath, jsonContent, 'utf8');
+}
+
+export function deactivate() {
+    console.log('TeaPie extension deactivated');
+} 

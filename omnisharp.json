@@ -1,0 +1,1 @@
+{  "script": {    "enabled": true,    "defaultTargetFramework": "net7.0",    "enableScriptNuGetReferences": true  }}
