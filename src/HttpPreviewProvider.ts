@@ -40,7 +40,7 @@ export class HttpPreviewProvider {
 
     private static getWebviewContent(uri: vscode.Uri): string {
         const content = fs.readFileSync(uri.fsPath, 'utf8');
-        
+
         // Parse HTTP content and convert to HTML
         const lines = content.split('\n');
         let html = '';
@@ -65,6 +65,34 @@ export class HttpPreviewProvider {
                 if (requestLine) {
                     html += `<div class="section-title">Request</div>\n`;
                     html += `<pre class="http-request">${this.syntaxHighlight(requestLine)}</pre>\n`;
+                    const [method, ...urlParts] = requestLine.split(' ');
+                    const url = urlParts.join(' ');
+                    const escapedHeaders = currentHeaders.split('\n')
+                        .filter(h => h.includes(':'))
+                        .map(h => h.replace(/"/g, '\\"'));
+
+                    // Format body if it exists
+                    let formattedBody = bodyContent.trim();
+                    if (formattedBody) {
+                        try {
+                            // Try to parse as JSON first
+                            const jsonBody = JSON.parse(formattedBody);
+                            formattedBody = JSON.stringify(jsonBody);
+                        } catch {
+                            // If not JSON, use as is but remove trailing newlines
+                            formattedBody = formattedBody.replace(/\n+$/, '');
+                        }
+                    }
+                    
+                    html += `<div class="request-actions">
+                        <button class="copy-curl-btn" onclick="copyCurlCommand(this)" 
+                            data-method="${method}"
+                            data-url="${url}"
+                            data-headers="${JSON.stringify(escapedHeaders).replace(/"/g, '&quot;')}"
+                            data-body="${formattedBody.replace(/"/g, '&quot;')}">
+                            Copy as cURL
+                        </button>
+                    </div>\n`;
                 }
 
                 // Add headers with title if any
@@ -74,11 +102,12 @@ export class HttpPreviewProvider {
                 }
 
                 // Add body with title if any
-                if (bodyContent) {
+                if (bodyContent.trim()) {
                     html += `<div class="section-title">Body</div>\n`;
                     const formattedBody = this.formatBody(bodyContent);
                     html += `<pre class="http-body"><code>${this.syntaxHighlight(formattedBody)}</code></pre>\n`;
                 }
+
                 currentRequest = '';
                 currentHeaders = '';
                 requestLine = '';
@@ -141,7 +170,7 @@ export class HttpPreviewProvider {
             }
 
             // Handle body
-            if (line.trim() === '') {
+            if (!inBody && line.trim() === '') {
                 inBody = true;
                 continue;
             }
@@ -257,7 +286,109 @@ export class HttpPreviewProvider {
                     .url { color: var(--vscode-textLink-foreground); }
                     .header-name { color: var(--vscode-debugTokenExpression-name); }
                     .header-value { color: var(--vscode-debugTokenExpression-string); }
+                    .request-actions {
+                        display: flex;
+                        gap: 8px;
+                        margin: 8px 0;
+                    }
+                    .copy-curl-btn {
+                        background-color: var(--vscode-button-background);
+                        color: var(--vscode-button-foreground);
+                        border: none;
+                        padding: 6px 12px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 12px;
+                    }
+                    .copy-curl-btn:hover {
+                        background-color: var(--vscode-button-hoverBackground);
+                    }
                 </style>
+                <script>
+                    function copyCurlCommand(button) {
+                        const method = button.getAttribute('data-method') || '';
+                        const url = button.getAttribute('data-url') || '';
+                        const headers = JSON.parse(button.getAttribute('data-headers') || '[]');
+                        const body = button.getAttribute('data-body') || '';
+
+                        let curlCmd = ['curl'];
+                        
+                        // Add method if not GET
+                        if (method !== 'GET') {
+                            curlCmd.push(\`-X \${method}\`);
+                        }
+
+                        // Add URL
+                        curlCmd.push(\`"\${url}"\`);
+
+                        // Add headers
+                        headers.forEach(header => {
+                            const [name, ...values] = header.split(':');
+                            if (name && values.length) {
+                                curlCmd.push(\`-H "\${name.trim()}: \${values.join(':').trim()}"\`);
+                            }
+                        });
+
+                        // Add Content-Type header if body exists and it's not already set
+                        if (body && !headers.some(h => h.toLowerCase().startsWith('content-type:'))) {
+                            try {
+                                JSON.parse(body);
+                                curlCmd.push('-H "Content-Type: application/json"');
+                            } catch {
+                                curlCmd.push('-H "Content-Type: text/plain"');
+                            }
+                        }
+
+                        // Add body if exists and method is not GET
+                        if (body && method !== 'GET') {
+                            try {
+                                // Try to parse as JSON first to validate
+                                JSON.parse(body);
+                                // Use the original body string to preserve formatting
+                                curlCmd.push(\`-d '\${body}'\`);
+                            } catch {
+                                // If not valid JSON, send as plain text
+                                curlCmd.push(\`-d '\${body}'\`);
+                            }
+                        }
+
+                        // Copy to clipboard
+                        const curlCommand = curlCmd.join(' ');
+                        
+                        try {
+                            navigator.clipboard.writeText(curlCommand).then(() => {
+                                button.textContent = 'Copied!';
+                                setTimeout(() => {
+                                    button.textContent = 'Copy as cURL';
+                                }, 2000);
+                            }).catch(() => {
+                                // Fallback for clipboard write failure
+                                const textarea = document.createElement('textarea');
+                                textarea.value = curlCommand;
+                                document.body.appendChild(textarea);
+                                textarea.select();
+                                document.execCommand('copy');
+                                document.body.removeChild(textarea);
+                                button.textContent = 'Copied!';
+                                setTimeout(() => {
+                                    button.textContent = 'Copy as cURL';
+                                }, 2000);
+                            });
+                        } catch (error) {
+                            // Fallback for old browsers
+                            const textarea = document.createElement('textarea');
+                            textarea.value = curlCommand;
+                            document.body.appendChild(textarea);
+                            textarea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textarea);
+                            button.textContent = 'Copied!';
+                            setTimeout(() => {
+                                button.textContent = 'Copy as cURL';
+                            }, 2000);
+                        }
+                    }
+                </script>
             </head>
             <body>
                 ${html}
@@ -268,11 +399,11 @@ export class HttpPreviewProvider {
 
     private static syntaxHighlight(text: string): string {
         // Highlight HTTP method and URL
-        text = text.replace(/^(GET|POST|PUT|DELETE|PATCH)(\s+)([^\n]+)/gm, 
+        text = text.replace(/^(GET|POST|PUT|DELETE|PATCH)(\s+)([^\n]+)/gm,
             '<span class="method">$1</span>$2<span class="url">$3</span>');
 
         // Highlight headers
-        text = text.replace(/^([^:\n]+)(:)(.+)$/gm, 
+        text = text.replace(/^([^:\n]+)(:)(.+)$/gm,
             '<span class="header-name">$1</span>$2<span class="header-value">$3</span>');
 
         // Highlight special header format in body
@@ -290,7 +421,7 @@ export class HttpPreviewProvider {
         if (body.includes('"header-name">') || body.includes('"header-value">')) {
             const lines = body.split('\n');
             const jsonObj: { [key: string]: any } = {};
-            
+
             for (const line of lines) {
                 const match = line.match(/"header-name">\s*"([^"]+)":\s*"header-value">\s*(.+?),?\s*$/);
                 if (match) {
@@ -303,7 +434,7 @@ export class HttpPreviewProvider {
                     }
                 }
             }
-            
+
             return JSON.stringify(jsonObj, null, 2);
         }
 
