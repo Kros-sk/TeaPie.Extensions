@@ -325,13 +325,29 @@ export class VisualTestEditorProvider {
                         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
                         line-height: 1.6;
                         padding: 20px;
-                        max-width: 1200px;
-                        margin: 0 auto;
+                        margin: 0;
                         background-color: var(--vscode-editor-background);
                         color: var(--vscode-editor-foreground);
+                        height: 100vh;
+                        box-sizing: border-box;
+                    }
+                    .container {
+                        display: flex;
+                        gap: 20px;
+                        height: 100%;
                     }
                     .requests-list {
-                        margin-bottom: 20px;
+                        width: 300px;
+                        flex-shrink: 0;
+                        border-right: 1px solid var(--vscode-widget-border);
+                        padding-right: 20px;
+                        overflow-y: auto;
+                        height: 100%;
+                    }
+                    .editor-container {
+                        flex-grow: 1;
+                        overflow-y: auto;
+                        padding-right: 20px;
                     }
                     .request-form {
                         background-color: var(--vscode-editor-inactiveSelectionBackground);
@@ -345,14 +361,16 @@ export class VisualTestEditorProvider {
                     .form-row {
                         display: flex;
                         gap: 10px;
-                        align-items: center;
+                        align-items: flex-start;
+                        min-width: 0;
                     }
                     .form-row select {
                         width: 100px;
                         flex-shrink: 0;
                     }
                     .form-row input {
-                        flex-grow: 1;
+                        flex: 1;
+                        min-width: 0;
                     }
                     label {
                         display: block;
@@ -395,6 +413,8 @@ export class VisualTestEditorProvider {
                         border: 1px solid var(--vscode-input-border);
                         border-radius: 4px;
                         cursor: pointer;
+                        word-break: break-all;
+                        overflow-wrap: break-word;
                     }
                     .request-item:hover {
                         background-color: var(--vscode-editor-inactiveSelectionBackground);
@@ -402,6 +422,22 @@ export class VisualTestEditorProvider {
                     .request-item.selected {
                         border-color: var(--vscode-focusBorder);
                         background-color: var(--vscode-editor-selectionBackground);
+                    }
+                    .request-item strong {
+                        display: block;
+                        margin-bottom: 5px;
+                    }
+                    .request-item .url-line {
+                        display: flex;
+                        gap: 8px;
+                        align-items: flex-start;
+                    }
+                    .request-item .method {
+                        flex-shrink: 0;
+                    }
+                    .request-item .url {
+                        word-break: break-all;
+                        overflow-wrap: break-word;
                     }
                     .section-title {
                         color: var(--vscode-descriptionForeground);
@@ -461,52 +497,56 @@ export class VisualTestEditorProvider {
                 </style>
             </head>
             <body>
-                <div class="requests-list">
-                    <h2>Requests</h2>
-                    <div id="requestsList"></div>
-                    <button onclick="addNewRequest()">Add New Request</button>
-                </div>
+                <div class="container">
+                    <div class="requests-list">
+                        <h2>Requests</h2>
+                        <div id="requestsList"></div>
+                        <button onclick="addNewRequest()">Add New Request</button>
+                    </div>
 
-                <div id="requestForm" class="request-form" style="display: none;">
-                    <h2>Edit Request</h2>
-                    <div class="form-group">
-                        <label for="requestName">Request Name</label>
-                        <input type="text" id="requestName" placeholder="Enter request name">
-                    </div>
-                    <div class="form-group">
-                        <label for="comments">Comments</label>
-                        <textarea id="comments" rows="3" placeholder="Enter comments (use // or # for each line)"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Request Line</label>
-                        <div class="form-row">
-                            <select id="method" onchange="toggleBody()">
-                                <option value="GET">GET</option>
-                                <option value="POST">POST</option>
-                                <option value="PUT">PUT</option>
-                                <option value="DELETE">DELETE</option>
-                                <option value="PATCH">PATCH</option>
-                            </select>
-                            <input type="text" id="url" placeholder="Enter URL">
+                    <div class="editor-container">
+                        <div id="requestForm" class="request-form" style="display: none;">
+                            <h2>Edit Request</h2>
+                            <div class="form-group">
+                                <label for="requestName">Request Name</label>
+                                <input type="text" id="requestName" placeholder="Enter request name">
+                            </div>
+                            <div class="form-group">
+                                <label for="comments">Comments</label>
+                                <textarea id="comments" rows="3" placeholder="Enter comments (use // or # for each line)"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Request Line</label>
+                                <div class="form-row">
+                                    <select id="method" onchange="toggleBody()">
+                                        <option value="GET">GET</option>
+                                        <option value="POST">POST</option>
+                                        <option value="PUT">PUT</option>
+                                        <option value="DELETE">DELETE</option>
+                                        <option value="PATCH">PATCH</option>
+                                    </select>
+                                    <input type="text" id="url" placeholder="Enter URL">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Directives</label>
+                                <div id="directivesList" class="directives-list"></div>
+                                <button onclick="addDirective()">Add Directive</button>
+                            </div>
+                            <div class="form-group">
+                                <label>Headers</label>
+                                <div id="headersList" class="headers-list"></div>
+                                <button onclick="addHeader()">Add Header</button>
+                            </div>
+                            <div class="form-group" id="bodyGroup">
+                                <label for="body">Body</label>
+                                <textarea id="body" rows="10" placeholder="Enter request body"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <button onclick="saveRequest()">Save Request</button>
+                                <button onclick="cancelEdit()">Cancel</button>
+                            </div>
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Directives</label>
-                        <div id="directivesList" class="directives-list"></div>
-                        <button onclick="addDirective()">Add Directive</button>
-                    </div>
-                    <div class="form-group">
-                        <label>Headers</label>
-                        <div id="headersList" class="headers-list"></div>
-                        <button onclick="addHeader()">Add Header</button>
-                    </div>
-                    <div class="form-group" id="bodyGroup">
-                        <label for="body">Body</label>
-                        <textarea id="body" rows="10" placeholder="Enter request body"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <button onclick="saveRequest()">Save Request</button>
-                        <button onclick="cancelEdit()">Cancel</button>
                     </div>
                 </div>
 
@@ -522,7 +562,10 @@ export class VisualTestEditorProvider {
                         requestsList.innerHTML = requests.map((req, index) => \`
                             <div class="request-item \${index === currentRequestIndex ? 'selected' : ''}" onclick="editRequest(\${index})">
                                 <strong>\${req.name || 'Unnamed Request'}</strong>
-                                <div>\${req.method} \${req.url}</div>
+                                <div class="url-line">
+                                    <span class="method">\${req.method}</span>
+                                    <span class="url">\${req.url}</span>
+                                </div>
                             </div>
                         \`).join('');
                     }
