@@ -64,7 +64,6 @@ export class HttpPreviewProvider {
                 // Add request line if any
                 if (requestLine) {
                     html += `<div class="section-title">Request</div>\n`;
-                    html += `<pre class="http-request">${this.syntaxHighlight(requestLine)}</pre>\n`;
                     const [method, ...urlParts] = requestLine.split(' ');
                     const url = urlParts.join(' ');
                     const escapedHeaders = currentHeaders.split('\n')
@@ -83,14 +82,19 @@ export class HttpPreviewProvider {
                             formattedBody = formattedBody.replace(/\n+$/, '');
                         }
                     }
-                    
-                    html += `<div class="request-actions">
+
+                    html += `<div class="http-request">
+                        ${this.syntaxHighlight(requestLine)}
                         <button class="copy-curl-btn" onclick="copyCurlCommand(this)" 
                             data-method="${method}"
                             data-url="${url}"
                             data-headers="${JSON.stringify(escapedHeaders).replace(/"/g, '&quot;')}"
-                            data-body="${formattedBody.replace(/"/g, '&quot;')}">
-                            Copy as cURL
+                            data-body="${formattedBody.replace(/"/g, '&quot;')}"
+                            title="Copy as cURL">
+                            <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M4 4h8v1H4V4zm0 3h8v1H4V7zm0 3h8v1H4v-1z"/>
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M3 3L2 2V14L3 15H13L14 14V2L13 1H3L2 2V14L3 15V3Z"/>
+                            </svg>
                         </button>
                     </div>\n`;
                 }
@@ -262,6 +266,47 @@ export class HttpPreviewProvider {
                         flex-wrap: wrap;
                         gap: 4px;
                     }
+                    .http-request {
+                        position: relative;
+                        background-color: var(--vscode-editor-inactiveSelectionBackground);
+                        padding: 8px 12px;
+                        border-radius: 4px;
+                        margin: 8px 0;
+                        font-family: monospace;
+                        white-space: pre-wrap;
+                        min-height: 32px;
+                        display: flex;
+                        align-items: center;
+                    }
+                    .copy-curl-btn {
+                        position: absolute;
+                        top: 50%;
+                        transform: translateY(-50%);
+                        right: 12px;
+                        background: none;
+                        border: none;
+                        padding: 4px;
+                        cursor: pointer;
+                        color: var(--vscode-descriptionForeground);
+                        opacity: 0.6;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        border-radius: 3px;
+                        height: 24px;
+                        width: 24px;
+                    }
+                    .http-request > :first-child {
+                        margin-right: 32px;
+                        padding: 0;
+                    }
+                    .copy-curl-btn:hover {
+                        opacity: 1;
+                        background-color: var(--vscode-toolbar-hoverBackground);
+                    }
+                    .copy-curl-btn.copied {
+                        color: var(--vscode-gitDecoration-addedResourceForeground);
+                    }
                     .http-request,
                     .http-headers,
                     .http-body {
@@ -290,18 +335,6 @@ export class HttpPreviewProvider {
                         display: flex;
                         gap: 8px;
                         margin: 8px 0;
-                    }
-                    .copy-curl-btn {
-                        background-color: var(--vscode-button-background);
-                        color: var(--vscode-button-foreground);
-                        border: none;
-                        padding: 6px 12px;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        font-size: 12px;
-                    }
-                    .copy-curl-btn:hover {
-                        background-color: var(--vscode-button-hoverBackground);
                     }
                 </style>
                 <script>
@@ -357,9 +390,9 @@ export class HttpPreviewProvider {
                         
                         try {
                             navigator.clipboard.writeText(curlCommand).then(() => {
-                                button.textContent = 'Copied!';
+                                button.classList.add('copied');
                                 setTimeout(() => {
-                                    button.textContent = 'Copy as cURL';
+                                    button.classList.remove('copied');
                                 }, 2000);
                             }).catch(() => {
                                 // Fallback for clipboard write failure
@@ -369,9 +402,9 @@ export class HttpPreviewProvider {
                                 textarea.select();
                                 document.execCommand('copy');
                                 document.body.removeChild(textarea);
-                                button.textContent = 'Copied!';
+                                button.classList.add('copied');
                                 setTimeout(() => {
-                                    button.textContent = 'Copy as cURL';
+                                    button.classList.remove('copied');
                                 }, 2000);
                             });
                         } catch (error) {
@@ -382,9 +415,9 @@ export class HttpPreviewProvider {
                             textarea.select();
                             document.execCommand('copy');
                             document.body.removeChild(textarea);
-                            button.textContent = 'Copied!';
+                            button.classList.add('copied');
                             setTimeout(() => {
-                                button.textContent = 'Copy as cURL';
+                                button.classList.remove('copied');
                             }, 2000);
                         }
                     }
