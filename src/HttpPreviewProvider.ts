@@ -1,17 +1,23 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 export class HttpPreviewProvider {
     private static currentPanel: vscode.WebviewPanel | undefined;
+    private static currentFile: vscode.Uri | undefined;
+    private static fileWatcher: vscode.FileSystemWatcher | undefined;
 
     public static show(uri: vscode.Uri) {
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn
             : undefined;
 
+        // Store the current file URI
+        HttpPreviewProvider.currentFile = uri;
+
         // If we already have a panel, show it
         if (HttpPreviewProvider.currentPanel) {
-            HttpPreviewProvider.currentPanel.reveal(column);
+            HttpPreviewProvider.currentPanel.reveal(column === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One);
             HttpPreviewProvider.currentPanel.webview.html = HttpPreviewProvider.getWebviewContent(uri);
             return;
         }
@@ -20,7 +26,7 @@ export class HttpPreviewProvider {
         HttpPreviewProvider.currentPanel = vscode.window.createWebviewPanel(
             'httpPreview',
             'HTTP Preview',
-            column || vscode.ViewColumn.One,
+            column === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One,
             {
                 enableScripts: true,
                 retainContextWhenHidden: true
@@ -29,13 +35,90 @@ export class HttpPreviewProvider {
 
         HttpPreviewProvider.currentPanel.webview.html = HttpPreviewProvider.getWebviewContent(uri);
 
+        // Setup file watcher if not already set up
+        if (!HttpPreviewProvider.fileWatcher) {
+            HttpPreviewProvider.fileWatcher = vscode.workspace.createFileSystemWatcher('**/*-req.http');
+            
+            // Watch for file changes
+            HttpPreviewProvider.fileWatcher.onDidChange((changedUri) => {
+                if (HttpPreviewProvider.currentPanel && 
+                    HttpPreviewProvider.currentFile && 
+                    changedUri.fsPath === HttpPreviewProvider.currentFile.fsPath) {
+                    HttpPreviewProvider.currentPanel.webview.html = HttpPreviewProvider.getWebviewContent(changedUri);
+                }
+            });
+        }
+
         // Reset when the panel is disposed
         HttpPreviewProvider.currentPanel.onDidDispose(
             () => {
                 HttpPreviewProvider.currentPanel = undefined;
+                // Dispose file watcher when panel is closed
+                if (HttpPreviewProvider.fileWatcher) {
+                    HttpPreviewProvider.fileWatcher.dispose();
+                    HttpPreviewProvider.fileWatcher = undefined;
+                }
+                HttpPreviewProvider.currentFile = undefined;
             },
             null
         );
+    }
+
+    private static generateBreadcrumb(filePath: string): string {
+        // Get workspace root
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!workspaceRoot) {
+            return ''; // Return empty if no workspace
+        }
+
+        // Get path relative to workspace
+        const relativePath = path.relative(workspaceRoot, filePath);
+        
+        // Normalize path separators to forward slashes
+        const normalizedPath = relativePath.replace(/\\/g, '/');
+        
+        // Split path into segments
+        const segments = normalizedPath.split('/').filter(Boolean);
+
+        // Format each segment to be more readable
+        const displaySegments = segments.map(segment => {
+            // If it's a test case file, remove the suffix
+            if (segment.endsWith('-req.http')) {
+                return segment.replace('-req.http', '');
+            }
+            // Make the segment more readable
+            return segment
+                .replace(/([A-Z])/g, ' $1') // Add space before capital letters
+                .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
+                .trim();
+        });
+
+        // Generate breadcrumb HTML
+        const breadcrumbItems = segments.map((segment, index) => {
+            // Create path up to this segment for navigation
+            const pathToSegment = path.join(workspaceRoot, ...segments.slice(0, index + 1));
+            
+            return `
+                <span class="breadcrumb-item">
+                    <a href="command:teapie-extensions.navigateToFolder?${encodeURIComponent(JSON.stringify(pathToSegment))}">
+                        ${displaySegments[index]}
+                    </a>
+                </span>
+                ${index < segments.length - 1 ? '<span class="breadcrumb-separator">/</span>' : ''}
+            `;
+        }).join('');
+
+        return `
+            <div class="breadcrumb">
+                <span class="breadcrumb-item">
+                    <a href="command:teapie-extensions.navigateToFolder?${encodeURIComponent(JSON.stringify(workspaceRoot))}">
+                        Root
+                    </a>
+                </span>
+                ${segments.length > 0 ? '<span class="breadcrumb-separator">/</span>' : ''}
+                ${breadcrumbItems}
+            </div>
+        `;
     }
 
     private static getWebviewContent(uri: vscode.Uri): string {
@@ -336,6 +419,26 @@ export class HttpPreviewProvider {
                         gap: 8px;
                         margin: 8px 0;
                     }
+                    .breadcrumb {
+                        padding: 10px;
+                        background-color: var(--vscode-editor-background);
+                        border-bottom: 1px solid var(--vscode-panel-border);
+                        margin-bottom: 20px;
+                    }
+                    .breadcrumb-item {
+                        display: inline-block;
+                    }
+                    .breadcrumb-item a {
+                        color: var(--vscode-textLink-foreground);
+                        text-decoration: none;
+                    }
+                    .breadcrumb-item a:hover {
+                        text-decoration: underline;
+                    }
+                    .breadcrumb-separator {
+                        margin: 0 8px;
+                        color: var(--vscode-descriptionForeground);
+                    }
                 </style>
                 <script>
                     function copyCurlCommand(button) {
@@ -424,6 +527,7 @@ export class HttpPreviewProvider {
                 </script>
             </head>
             <body>
+                ${this.generateBreadcrumb(uri.fsPath)}
                 ${html}
             </body>
             </html>

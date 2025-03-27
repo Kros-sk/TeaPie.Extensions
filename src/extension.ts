@@ -399,6 +399,16 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    let navigateToFolderDisposable = vscode.commands.registerCommand('teapie-extensions.navigateToFolder', async (path: string) => {
+        try {
+            // Find the TreeItem corresponding to this path
+            const treeViewProvider = new TeaPieTreeViewProvider(vscode.workspace.workspaceFolders?.[0].uri.fsPath);
+            await treeViewProvider.reveal(vscode.Uri.file(path));
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to navigate to folder: ${error}`);
+        }
+    });
+
     context.subscriptions.push(
         treeView,
         refreshDisposable,
@@ -412,7 +422,8 @@ export function activate(context: vscode.ExtensionContext) {
         generateTestCaseDisposable,
         exploreCollectionDisposable,
         previewHttpFileDisposable,
-        visualEditorDisposable
+        visualEditorDisposable,
+        navigateToFolderDisposable
     );
 }
 

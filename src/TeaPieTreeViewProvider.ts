@@ -22,6 +22,37 @@ export class TeaPieTreeViewProvider implements vscode.TreeDataProvider<TeaPieTre
         this._onDidChangeTreeData.fire();
     }
 
+    async reveal(uri: vscode.Uri): Promise<void> {
+        // Get the relative path from workspace root
+        const relativePath = path.relative(this.workspaceRoot || '', uri.fsPath);
+        const segments = relativePath.split(path.sep).filter(Boolean);
+
+        // Start from root and traverse down
+        let currentPath = this.workspaceRoot || '';
+        let currentItems = await this.getRootItems();
+
+        for (const segment of segments) {
+            currentPath = path.join(currentPath, segment);
+            const targetUri = vscode.Uri.file(currentPath);
+            
+            // Find the matching item
+            const matchingItem = currentItems.find(item => 
+                item.resourceUri && item.resourceUri.fsPath === targetUri.fsPath
+            );
+
+            if (matchingItem) {
+                // If this is a directory, expand it
+                if (matchingItem.isDirectory) {
+                    currentItems = await this.getChildren(matchingItem);
+                }
+            } else {
+                // If we can't find the item, refresh the tree to ensure it's loaded
+                this.refresh();
+                currentItems = await this.getChildren();
+            }
+        }
+    }
+
     getTreeItem(element: TeaPieTreeItem): vscode.TreeItem {
         return element;
     }
