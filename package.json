@@ -24,7 +24,8 @@
     "onCommand:teapie-extensions.nextTestCaseWithSubdirs",
     "onCommand:teapie-extensions.generateTestCase",
     "onCommand:teapie-extensions.refreshExplorer",
-    "onCommand:teapie-extensions.openFile"
+    "onCommand:teapie-extensions.openFile",
+    "onCommand:teapie-extensions.shiftSubsequentTests"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -119,6 +120,16 @@
       {
         "command": "teapie.setupCsxSupport",
         "title": "TeaPie: Setup C# Script Support"
+      },
+      {
+        "command": "teapie.shiftTestNames",
+        "title": "TeaPie: Shift Test Names",
+        "category": "TeaPie"
+      },
+      {
+        "command": "teapie-extensions.shiftSubsequentTests",
+        "title": "TeaPie: Shift Subsequent Tests",
+        "category": "TeaPie"
       }
     ],
     "menus": {
@@ -149,6 +160,10 @@
           "command": "teapie-extensions.runDirectory",
           "when": "view == teapieExplorer && viewItem == directory",
           "group": "inline"
+        },
+        {
+          "command": "teapie-extensions.shiftSubsequentTests",
+          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == testCase || viewItem == directory)"
         }
       ],
       "explorer/context": [
@@ -186,6 +201,12 @@
           "command": "teapie-extensions.openVisualEditor",
           "group": "teapie@7",
           "when": "resourceExtname == .http"
+        },
+        {
+          "command": "teapie-extensions.shiftSubsequentTests",
+          "title": "TeaPie: Shift Subsequent Tests",
+          "group": "teapie@1",
+          "when": "resourceFilename =~ /.*-req\\.http$/ || resourceFilename =~ /.*-test\\.csx$/ || explorerResourceIsFolder"
         }
       ],
       "editor/context": [

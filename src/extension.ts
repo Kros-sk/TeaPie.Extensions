@@ -6,6 +6,7 @@ import { TeaPieTreeItem, TeaPieTreeViewProvider } from './TeaPieTreeViewProvider
 
 import { HttpPreviewProvider } from './HttpPreviewProvider';
 import { TeaPieLanguageServer } from './TeaPieLanguageServer';
+import { TestRenameProvider } from './TestRenameProvider';
 import { VisualTestEditorProvider } from './VisualTestEditorProvider';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -23,6 +24,9 @@ export function activate(context: vscode.ExtensionContext) {
         console.error('Failed to initialize TeaPie language server:', error);
     });
     
+    // Initialize TestRenameProvider
+    const testRenameProvider = new TestRenameProvider(context);
+
     // Register a command to reload XML documentation
     context.subscriptions.push(
         vscode.commands.registerCommand('teapie.reloadDocs', async () => {
@@ -408,6 +412,43 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.showErrorMessage(`Failed to navigate to folder: ${error}`);
         }
     });
+
+    // Register command for shifting test names
+    context.subscriptions.push(
+        vscode.commands.registerCommand('teapie-extensions.shiftTestNames', async (uri: vscode.Uri) => {
+            const startNumber = await vscode.window.showInputBox({
+                prompt: 'Enter the starting test number to shift from',
+                validateInput: (value) => {
+                    const num = parseInt(value);
+                    return isNaN(num) ? 'Please enter a valid number' : null;
+                }
+            });
+
+            const shiftAmount = await vscode.window.showInputBox({
+                prompt: 'Enter the amount to shift by (positive or negative)',
+                validateInput: (value) => {
+                    const num = parseInt(value);
+                    return isNaN(num) ? 'Please enter a valid number' : null;
+                }
+            });
+
+            if (startNumber && shiftAmount) {
+                const relativePath = vscode.workspace.asRelativePath(uri);
+                await testRenameProvider.shiftTestNames(
+                    relativePath,
+                    parseInt(startNumber),
+                    parseInt(shiftAmount)
+                );
+            }
+        })
+    );
+
+    // Register command for shifting subsequent tests
+    context.subscriptions.push(
+        vscode.commands.registerCommand('teapie-extensions.shiftSubsequentTests', async (uri: vscode.Uri) => {
+            await testRenameProvider.shiftSubsequentTests(uri);
+        })
+    );
 
     context.subscriptions.push(
         treeView,
