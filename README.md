@@ -14,6 +14,9 @@ VS Code extension for TeaPie testing framework.
 - TeaPie Explorer with test case tree view
 - Explore collection structure
 - Quick access to test files via icons
+- Visual HTTP request preview
+- Visual test editor
+- Automatic test case reordering
 
 ## Commands
 
@@ -26,6 +29,9 @@ VS Code extension for TeaPie testing framework.
 - `TeaPie: Generate New Test Case` - Generate a new test case and open the .http file
 - `TeaPie: Explore Collection` - Show the structure of test cases in the output window
 - `TeaPie: Refresh Explorer` - Refresh the TeaPie Explorer tree view
+- `TeaPie: Preview HTTP File` - Open a visual preview of the HTTP request
+- `TeaPie: Open Visual Editor` - Open the visual test editor
+- `TeaPie: Shift Subsequent Tests` - Shift test case numbers to make space for new tests
 
 ## TeaPie Explorer
 
@@ -40,6 +46,9 @@ Features available in the explorer:
 - Use inline commands to run tests or open files
 - Group test cases by their names
 - Human-readable test case names
+- Visual HTTP request preview
+- Visual test editor
+- Automatic test case reordering
 
 ## Context Menu
 
@@ -49,6 +58,9 @@ Right-click menu is available in:
    - Run test
    - Run tests to here
    - Run all tests in directory
+   - Preview HTTP file
+   - Open visual editor
+   - Shift subsequent tests
 
 2. Solution Explorer
    - Run tests (on directories)
@@ -56,6 +68,9 @@ Right-click menu is available in:
    - Run tests to here (on .http and .csx files)
    - Generate new test case (on directories)
    - Explore collection (on directories)
+   - Preview HTTP file (on .http files)
+   - Open visual editor (on .http files)
+   - Shift subsequent tests (on files and directories)
 
 ## Keybindings
 
