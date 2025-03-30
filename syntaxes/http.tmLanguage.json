@@ -1,0 +1,43 @@
+{
+    "name": "HTTP",
+    "scopeName": "source.http",
+    "patterns": [
+        {
+            "match": "^(@[a-zA-Z]+)\\s*(.*)$",
+            "captures": {
+                "1": { "name": "keyword.control.directive.http" },
+                "2": { "name": "string.unquoted.http" }
+            }
+        },
+        {
+            "match": "^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT)\\s+([^\\s]+)\\s*(HTTP/[0-9.]+)?$",
+            "captures": {
+                "1": { "name": "keyword.other.http.method" },
+                "2": { "name": "string.unquoted.http.url" },
+                "3": { "name": "constant.language.http.version" }
+            }
+        },
+        {
+            "match": "^([A-Za-z0-9-]+):\\s*(.*)$",
+            "captures": {
+                "1": { "name": "support.type.property-name.http" },
+                "2": { "name": "string.unquoted.http" }
+            }
+        },
+        {
+            "match": "\\{\\{([^}]+)\\}\\}",
+            "captures": {
+                "1": { "name": "variable.other.http" }
+            }
+        },
+        {
+            "begin": "^###\\s*region\\b",
+            "end": "^###\\s*endregion\\b",
+            "name": "meta.region.http"
+        },
+        {
+            "match": "#.*$",
+            "name": "comment.line.number-sign.http"
+        }
+    ]
+} 

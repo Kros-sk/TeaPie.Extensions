@@ -267,8 +267,21 @@
         "mac": "cmd+alt+f7"
       }
     ],
-    "languages": [],
-    "grammars": []
+    "languages": [
+      {
+        "id": "http",
+        "extensions": [".http"],
+        "aliases": ["HTTP", "http"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "http",
+        "scopeName": "source.http",
+        "path": "./syntaxes/http.tmLanguage.json"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
