@@ -246,6 +246,12 @@
         "when": "editorTextFocus && (resourceFilename =~ /.*-req\\.http$/ || (resourceFilename =~ /.*-test\\.csx$/ && resourcePath =~ /.*-req\\.http$/))"
       },
       {
+        "command": "teapie-extensions.previewHttpFile",
+        "key": "f6",
+        "mac": "f6",
+        "when": "editorTextFocus && resourceFilename =~ /.*-req\\.http$/"
+      },
+      {
         "command": "teapie-extensions.cycleTestFiles",
         "key": "f7",
         "mac": "f7"
