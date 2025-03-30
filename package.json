@@ -234,24 +234,31 @@
     },
     "keybindings": [
       {
+        "command": "teapie-extensions.runFile",
+        "key": "f5",
+        "mac": "f5",
+        "when": "editorTextFocus && (resourceFilename =~ /.*-req\\.http$/ || (resourceFilename =~ /.*-test\\.csx$/ && resourcePath =~ /.*-req\\.http$/))"
+      },
+      {
+        "command": "teapie-extensions.runToFile",
+        "key": "ctrl+f5",
+        "mac": "cmd+f5",
+        "when": "editorTextFocus && (resourceFilename =~ /.*-req\\.http$/ || (resourceFilename =~ /.*-test\\.csx$/ && resourcePath =~ /.*-req\\.http$/))"
+      },
+      {
         "command": "teapie-extensions.cycleTestFiles",
         "key": "f7",
-        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
+        "mac": "f7"
       },
       {
         "command": "teapie-extensions.nextTestCase",
         "key": "alt+f7",
-        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
+        "mac": "alt+f7"
       },
       {
         "command": "teapie-extensions.nextTestCaseWithSubdirs",
         "key": "ctrl+alt+f7",
-        "when": "editorTextFocus && resourceFilename =~ /\\.(csx|http)$/"
-      },
-      {
-        "command": "teapie-extensions.previewHttpFile",
-        "key": "f6",
-        "when": "editorTextFocus && editorLangId == http"
+        "mac": "cmd+alt+f7"
       }
     ],
     "languages": [],

@@ -74,6 +74,8 @@ Right-click menu is available in:
 
 ## Keybindings
 
+- `F5` - Run the current test file
+- `Ctrl+F5` - Run all tests up to the current file
 - `F7` - Cycle between test files
 - `Alt+F7` - Navigate to next test case in current directory
 - `Ctrl+Alt+F7` - Navigate to next test case across all directories

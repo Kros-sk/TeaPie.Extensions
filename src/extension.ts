@@ -135,11 +135,34 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let runFileDisposable = vscode.commands.registerCommand('teapie-extensions.runFile', async (item: TeaPieTreeItem | vscode.Uri) => {
+    let runFileDisposable = vscode.commands.registerCommand('teapie-extensions.runFile', async (item?: TeaPieTreeItem | vscode.Uri) => {
         try {
             let targetPath: string;
+
+            // If no item provided, try to get from active editor
+            if (!item) {
+                const editor = vscode.window.activeTextEditor;
+                if (!editor) {
+                    throw new Error('No active editor');
+                }
+                item = editor.document.uri;
+            }
+
             if (item instanceof vscode.Uri) {
-                targetPath = item.fsPath;
+                const filePath = item.fsPath;
+                if (filePath.endsWith('-test.csx')) {
+                    // If it's a test file, find the corresponding HTTP file
+                    const httpFile = filePath.replace('-test.csx', '-req.http');
+                    if (fs.existsSync(httpFile)) {
+                        targetPath = httpFile;
+                    } else {
+                        throw new Error('No corresponding HTTP file found for this test file');
+                    }
+                } else if (filePath.endsWith('-req.http')) {
+                    targetPath = filePath;
+                } else {
+                    throw new Error('Not a TeaPie test file');
+                }
             } else if (item?.httpFileUri) {
                 targetPath = item.httpFileUri.fsPath;
             } else {
@@ -151,11 +174,34 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let runToFileDisposable = vscode.commands.registerCommand('teapie-extensions.runToFile', async (item: TeaPieTreeItem | vscode.Uri) => {
+    let runToFileDisposable = vscode.commands.registerCommand('teapie-extensions.runToFile', async (item?: TeaPieTreeItem | vscode.Uri) => {
         try {
             let targetPath: string;
+
+            // If no item provided, try to get from active editor
+            if (!item) {
+                const editor = vscode.window.activeTextEditor;
+                if (!editor) {
+                    throw new Error('No active editor');
+                }
+                item = editor.document.uri;
+            }
+
             if (item instanceof vscode.Uri) {
-                targetPath = item.fsPath;
+                const filePath = item.fsPath;
+                if (filePath.endsWith('-test.csx')) {
+                    // If it's a test file, find the corresponding HTTP file
+                    const httpFile = filePath.replace('-test.csx', '-req.http');
+                    if (fs.existsSync(httpFile)) {
+                        targetPath = httpFile;
+                    } else {
+                        throw new Error('No corresponding HTTP file found for this test file');
+                    }
+                } else if (filePath.endsWith('-req.http')) {
+                    targetPath = filePath;
+                } else {
+                    throw new Error('Not a TeaPie test file');
+                }
             } else if (item?.httpFileUri) {
                 targetPath = item.httpFileUri.fsPath;
             } else {
