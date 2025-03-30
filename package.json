@@ -2,7 +2,7 @@
   "name": "teapie-extensions",
   "displayName": "TeaPie Extensions",
   "description": "Run TeaPie tests directly from VS Code",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "publisher": "local",
   "repository": {
     "type": "git",
@@ -280,6 +280,12 @@
         "language": "http",
         "scopeName": "source.http",
         "path": "./syntaxes/http.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "csharp",
+        "path": "./snippets/csharp.json"
       }
     ]
   },

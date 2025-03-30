@@ -1,0 +1,7 @@
+{
+    "tp - TeaPie": {
+        "prefix": "tp",
+        "body": ["tp"],
+        "description": "Override tp so it doesn't become typeof"
+    }
+} 
