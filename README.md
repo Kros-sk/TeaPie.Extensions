@@ -1,6 +1,6 @@
 # TeaPie Extensions for VS Code
 
-![TeaPie Extensions Logo](https://raw.githubusercontent.com/Kros-sk/TeaPie.Extensions/main/resources/teapie.png)
+![TeaPie Extensions Logo](https://github.com/Kros-sk/TeaPie.Extensions/blob/master/resources/teapie.png?raw=true)
 
 A Visual Studio Code extension that provides seamless integration with TeaPie, allowing you to run and manage your HTTP tests directly from VS Code.
 
