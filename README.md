@@ -1,127 +1,67 @@
-# TeaPie Extensions
+# TeaPie Extensions for VS Code
 
-VS Code extension for TeaPie testing framework.
+![TeaPie Extensions Logo](https://raw.githubusercontent.com/Kros-sk/TeaPie.Extensions/main/resources/teapie.png)
+
+A Visual Studio Code extension that provides seamless integration with TeaPie, allowing you to run and manage your HTTP tests directly from VS Code.
+
+Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing framework.
 
 ## Features
 
-- Run all tests in a directory
-- Run a single test file
-- Run tests up to a specific file
-- Cycle between test files (init.csx -> req.http -> test.csx)
-- Navigate to next test case in current directory
-- Navigate to next test case across all directories
-- Generate new test case with automatic file opening
-- TeaPie Explorer with test case tree view
-- Explore collection structure
-- Quick access to test files via icons
-- Visual HTTP request preview
-- Visual test editor
-- Automatic test case reordering
+- 🚀 Run TeaPie tests directly from VS Code
+- 📁 Test case management through the TeaPie Explorer
+- ⌨️ Keyboard shortcuts for efficient test execution
+- 🔄 Automatic test file cycling
+- 📝 HTTP file preview support
+- 🔍 Easy navigation between test cases
+- 🎨 Syntax highlighting for .http files (directives, methods, headers, etc.)
+- 💡 IntelliSense support for TeaPie directives
 
-## Commands
+## Usage
 
-- `TeaPie: Run Tests` - Run all tests in the selected directory
-- `TeaPie: Run Test` - Run the test file and its corresponding .http file
-- `TeaPie: Run Tests To Here` - Run all tests up to the selected file
-- `TeaPie: Cycle Test Files` - Cycle between test files (init.csx -> req.http -> test.csx)
-- `TeaPie: Next Test Case` - Navigate to the next test case in the current directory
-- `TeaPie: Next Test Case (Include Subdirectories)` - Navigate to the next test case across all directories
-- `TeaPie: Generate New Test Case` - Generate a new test case and open the .http file
-- `TeaPie: Explore Collection` - Show the structure of test cases in the output window
-- `TeaPie: Refresh Explorer` - Refresh the TeaPie Explorer tree view
-- `TeaPie: Preview HTTP File` - Open a visual preview of the HTTP request
-- `TeaPie: Open Visual Editor` - Open the visual test editor
-- `TeaPie: Shift Subsequent Tests` - Shift test case numbers to make space for new tests
+### Commands
 
-## TeaPie Explorer
+- `TeaPie: Run Tests` - Run all tests in the current directory
+- `TeaPie: Run Test (F5)` - Run the currently selected test
+- `TeaPie: Cycle Test Files (F7)` - Navigate between test files
+- `TeaPie: Next Test Case (Alt+F7)` - Move to the next test case
+- `TeaPie: Next Test Case (Include Subdirectories) (Ctrl+Alt+F7)` - Move to the next test case including subdirectories
+- `TeaPie: Generate New Test Case` - Create a new test case
+- `TeaPie: Explore Collection` - Browse your test collection
+- `TeaPie: Refresh Explorer` - Refresh the TeaPie Explorer view
+- `TeaPie: Open HTML Preview (F6)` - Open the current HTTP file in HTML preview mode
 
-The TeaPie Explorer provides a tree view of your test cases organized by directories. Each test case shows:
-- HTTP request file
-- Test file
-- Init file (if exists)
+### Keyboard Shortcuts
 
-Features available in the explorer:
-- Click on a file to open it
-- Click on a test case to open its HTTP file
-- Use inline commands to run tests or open files
-- Group test cases by their names
-- Human-readable test case names
-- Visual HTTP request preview
-- Visual test editor
-- Automatic test case reordering
-
-## Context Menu
-
-Right-click menu is available in:
-1. TeaPie Explorer
-   - Open file
-   - Run test
-   - Run tests to here
-   - Run all tests in directory
-   - Preview HTTP file
-   - Open visual editor
-   - Shift subsequent tests
-
-2. Solution Explorer
-   - Run tests (on directories)
-   - Run test (on .http and .csx files)
-   - Run tests to here (on .http and .csx files)
-   - Generate new test case (on directories)
-   - Explore collection (on directories)
-   - Preview HTTP file (on .http files)
-   - Open visual editor (on .http files)
-   - Shift subsequent tests (on files and directories)
-
-## Keybindings
-
-- `F5` - Run the current test file
-- `Ctrl+F5` - Run all tests up to the current file
+- `F5` - Run the current test
 - `F6` - Preview HTTP file
-- `F7` - Cycle between test files
-- `Alt+F7` - Navigate to next test case in current directory
-- `Ctrl+Alt+F7` - Navigate to next test case across all directories
+- `F7` - Cycle through test files
+- `Alt+F7` - Move to next test case
+- `Ctrl+Alt+F7` - Move to next test case (including subdirectories)
 
-## Development
+### Context Menu Actions
 
-### Prerequisites
+Right-click on files or folders in the TeaPie Explorer to access additional actions:
 
-- Node.js
-- npm
-- VS Code Extension Manager (vsce)
-
-### Building the Extension
-
-1. Install dependencies:
-```bash
-npm install
-```
-
-2. Compile the extension:
-```bash
-npm run compile
-```
-
-3. Create VSIX package:
-```bash
-vsce package
-```
-
-The compiled extension will be in the `out` directory and the VSIX package will be created in the root directory.
-
-### Installing the Extension
-
-1. Open VS Code
-2. Press `Ctrl+Shift+P` to open the command palette
-3. Type "Install from VSIX"
-4. Select the VSIX package file
-5. Restart VS Code
-
-Alternatively, you can install from the command line:
-```bash
-code --install-extension teapie-extensions-0.0.4.vsix
-```
+- Run tests
+- Generate new test cases
+- Preview HTTP files
+- Shift subsequent tests
 
 ## Requirements
 
-- VS Code 1.85.0 or higher
-- TeaPie CLI installed and available in PATH 
+- TeaPie installed on your system
+
+## Release Notes
+
+### 0.0.11
+
+Initial release with basic TeaPie integration features.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## ⚠️ Disclaimer
+
+This extension was generated using artificial intelligence. While we strive for accuracy, there may be bugs or issues that need to be addressed. Please report any problems you encounter through GitHub issues.
