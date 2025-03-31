@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { TeaPieTreeItem, TeaPieTreeViewProvider } from './TeaPieTreeViewProvider';
 
 import { HttpCompletionProvider } from './HttpCompletionProvider';
+import { HttpHoverProvider } from './HttpHoverProvider';
 import { HttpPreviewProvider } from './HttpPreviewProvider';
 import { TeaPieLanguageServer } from './TeaPieLanguageServer';
 import { TestRenameProvider } from './TestRenameProvider';
@@ -501,9 +502,17 @@ export function activate(context: vscode.ExtensionContext) {
     const httpCompletionProvider = new HttpCompletionProvider();
     context.subscriptions.push(
         vscode.languages.registerCompletionItemProvider(
-            { scheme: 'file', language: 'http' },
-            httpCompletionProvider,
-            '@', ':', ' ' // Trigger characters
+            'http',
+            new HttpCompletionProvider(),
+            '@', '#', ':'
+        )
+    );
+
+    // Register the hover provider
+    context.subscriptions.push(
+        vscode.languages.registerHoverProvider(
+            'http',
+            new HttpHoverProvider()
         )
     );
 
