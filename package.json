@@ -3,11 +3,31 @@
   "displayName": "TeaPie Extensions",
   "description": "Run TeaPie tests directly from VS Code",
   "version": "0.0.11",
-  "publisher": "local",
+  "publisher": "kros",
   "icon": "resources/teapie.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/Kros-sk/TeaPie.Extensions"
+  },
+  "bugs": {
+    "url": "https://github.com/Kros-sk/TeaPie.Extensions/issues"
+  },
+  "homepage": "https://github.com/Kros-sk/TeaPie.Extensions#readme",
+  "galleryBanner": {
+    "color": "#C80000",
+    "theme": "dark"
+  },
+  "keywords": [
+    "teapie",
+    "testing",
+    "api",
+    "http",
+    "rest",
+    "automation"
+  ],
+  "author": {
+    "name": "Kros a.s.",
+    "url": "https://www.kros.sk/"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -388,7 +408,5 @@
     "xml2js": "^0.6.2",
     "yocto-queue": "^0.1.0"
   },
-  "keywords": [],
-  "author": "",
   "license": "ISC"
 }
