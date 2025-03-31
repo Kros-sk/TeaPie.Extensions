@@ -4,9 +4,10 @@
   "description": "Run TeaPie tests directly from VS Code",
   "version": "0.0.11",
   "publisher": "local",
+  "icon": "resources/teapie.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/teapie-extensions"
+    "url": "https://github.com/Kros-sk/TeaPie.Extensions"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -18,7 +19,6 @@
     "workspaceContains:**/*.http",
     "onCommand:teapie-extensions.runDirectory",
     "onCommand:teapie-extensions.runFile",
-    "onCommand:teapie-extensions.runToFile",
     "onCommand:teapie-extensions.cycleTestFiles",
     "onCommand:teapie-extensions.nextTestCase",
     "onCommand:teapie-extensions.nextTestCaseWithSubdirs",
@@ -34,7 +34,7 @@
         {
           "id": "teapie-explorer",
           "title": "TeaPie Explorer",
-          "icon": "resources/teapie.svg"
+          "icon": "resources/teapie.png"
         }
       ]
     },
@@ -56,11 +56,6 @@
         "command": "teapie-extensions.runFile",
         "title": "TeaPie: Run Test",
         "icon": "$(play)"
-      },
-      {
-        "command": "teapie-extensions.runToFile",
-        "title": "TeaPie: Run Tests To Here",
-        "icon": "$(debug-continue)"
       },
       {
         "command": "teapie-extensions.cycleTestFiles",
@@ -95,11 +90,6 @@
         "command": "teapie-extensions.previewHttpFile",
         "title": "Preview HTTP",
         "icon": "$(preview)"
-      },
-      {
-        "command": "teapie-extensions.openVisualEditor",
-        "title": "TeaPie: Open Visual Editor",
-        "icon": "$(edit)"
       },
       {
         "command": "teapie.reload",
@@ -157,11 +147,6 @@
           "group": "inline"
         },
         {
-          "command": "teapie-extensions.runToFile",
-          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == testCase)",
-          "group": "inline"
-        },
-        {
           "command": "teapie-extensions.runDirectory",
           "when": "view == teapieExplorer && viewItem == directory",
           "group": "inline"
@@ -183,11 +168,6 @@
           "when": "resourceFilename =~ /.*-req\\.http$/ || resourceFilename =~ /.*-test\\.csx$/"
         },
         {
-          "command": "teapie-extensions.runToFile",
-          "group": "teapie@3",
-          "when": "resourceFilename =~ /.*-req\\.http$/ || resourceFilename =~ /.*-test\\.csx$/"
-        },
-        {
           "command": "teapie-extensions.generateTestCase",
           "group": "teapie@4",
           "when": "explorerResourceIsFolder"
@@ -200,11 +180,6 @@
         {
           "command": "teapie-extensions.previewHttpFile",
           "group": "teapie@6",
-          "when": "resourceExtname == .http"
-        },
-        {
-          "command": "teapie-extensions.openVisualEditor",
-          "group": "teapie@7",
           "when": "resourceExtname == .http"
         },
         {
@@ -221,19 +196,9 @@
           "group": "navigation@1"
         },
         {
-          "command": "teapie-extensions.runToFile",
-          "when": "resourceFilename =~ /\\.(csx|http)$/",
-          "group": "navigation@2"
-        },
-        {
           "command": "teapie-extensions.previewHttpFile",
           "when": "resourceExtname == .http",
           "group": "navigation@3"
-        },
-        {
-          "command": "teapie-extensions.openVisualEditor",
-          "when": "resourceExtname == .http",
-          "group": "navigation@4"
         }
       ],
       "editor/title": [
@@ -254,12 +219,6 @@
         "command": "teapie-extensions.runFile",
         "key": "f5",
         "mac": "f5",
-        "when": "editorTextFocus && (resourceFilename =~ /.*-req\\.http$/ || (resourceFilename =~ /.*-test\\.csx$/ && resourcePath =~ /.*-req\\.http$/))"
-      },
-      {
-        "command": "teapie-extensions.runToFile",
-        "key": "ctrl+f5",
-        "mac": "cmd+f5",
         "when": "editorTextFocus && (resourceFilename =~ /.*-req\\.http$/ || (resourceFilename =~ /.*-test\\.csx$/ && resourcePath =~ /.*-req\\.http$/))"
       },
       {
