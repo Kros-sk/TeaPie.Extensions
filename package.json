@@ -130,6 +130,11 @@
         "command": "teapie-extensions.shiftSubsequentTests",
         "title": "TeaPie: Shift Subsequent Tests",
         "category": "TeaPie"
+      },
+      {
+        "command": "teapie-extensions.runHttpTest",
+        "title": "Run test (F5)",
+        "icon": "$(play)"
       }
     ],
     "menus": {
@@ -229,6 +234,13 @@
           "command": "teapie-extensions.openVisualEditor",
           "when": "resourceExtname == .http",
           "group": "navigation@4"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "teapie-extensions.runHttpTest",
+          "when": "resourceExtname == .http",
+          "group": "navigation"
         }
       ]
     },

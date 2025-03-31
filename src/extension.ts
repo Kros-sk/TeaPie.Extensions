@@ -516,6 +516,15 @@ export function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    // Register the command to run HTTP tests
+    let runHttpTestDisposable = vscode.commands.registerCommand('teapie-extensions.runHttpTest', async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (editor && editor.document.languageId === 'http') {
+            const filePath = editor.document.uri.fsPath;
+            await runTeaPieCommand('test', filePath);
+        }
+    });
+
     context.subscriptions.push(
         treeView,
         refreshDisposable,
@@ -530,7 +539,8 @@ export function activate(context: vscode.ExtensionContext) {
         exploreCollectionDisposable,
         previewHttpFileDisposable,
         visualEditorDisposable,
-        navigateToFolderDisposable
+        navigateToFolderDisposable,
+        runHttpTestDisposable
     );
 }
 
