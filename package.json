@@ -2,7 +2,7 @@
   "name": "teapie-extensions",
   "displayName": "TeaPie Extensions",
   "description": "Run TeaPie tests directly from VS Code",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "publisher": "local",
   "repository": {
     "type": "git",
@@ -93,7 +93,7 @@
       },
       {
         "command": "teapie-extensions.previewHttpFile",
-        "title": "TeaPie: Preview HTTP File",
+        "title": "Preview HTTP",
         "icon": "$(preview)"
       },
       {
@@ -239,6 +239,11 @@
       "editor/title": [
         {
           "command": "teapie-extensions.runHttpTest",
+          "when": "resourceExtname == .http",
+          "group": "navigation"
+        },
+        {
+          "command": "teapie-extensions.previewHttpFile",
           "when": "resourceExtname == .http",
           "group": "navigation"
         }
