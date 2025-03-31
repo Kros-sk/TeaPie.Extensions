@@ -3,41 +3,203 @@
     "scopeName": "source.http",
     "patterns": [
         {
-            "match": "^(@[a-zA-Z]+)\\s*(.*)$",
-            "captures": {
-                "1": { "name": "keyword.control.directive.http" },
-                "2": { "name": "string.unquoted.http" }
-            }
+            "include": "#section-header"
         },
         {
+            "include": "#teapie-name-directive"
+        },
+        {
+            "include": "#teapie-directives"
+        },
+        {
+            "include": "#comment"
+        },
+        {
+            "include": "#request-line"
+        },
+        {
+            "include": "#header"
+        },
+        {
+            "include": "#variable"
+        },
+        {
+            "include": "#json-body"
+        }
+    ],
+    "repository": {
+        "section-header": {
+            "match": "^(###)\\s+(.*)$",
+            "captures": {
+                "1": { "name": "markup.heading.http" },
+                "2": { "name": "entity.name.section.http" }
+            }
+        },
+        "teapie-name-directive": {
+            "match": "^(#\\s*@name)\\s+(.*)$",
+            "captures": {
+                "1": { "name": "keyword.control.directive.teapie.http" },
+                "2": { "name": "string.unquoted.directive.value.teapie.http" }
+            }
+        },
+        "teapie-directives": {
+            "patterns": [
+                {
+                    "match": "^(##)\\s*(TEST-[A-Z-]+)(?::\\s*(.+))?$",
+                    "captures": {
+                        "1": { "name": "comment.line.number-sign.http" },
+                        "2": { "name": "markup.inserted.http" },
+                        "3": { "name": "string.unquoted.http" }
+                    }
+                },
+                {
+                    "match": "^(##)\\s*(RETRY-[A-Z-]+)(?::\\s*(.+))?$",
+                    "captures": {
+                        "1": { "name": "comment.line.number-sign.http" },
+                        "2": { "name": "markup.changed.http" },
+                        "3": { "name": "string.unquoted.http" }
+                    }
+                },
+                {
+                    "match": "^(##)\\s*(AUTH-[A-Z-]+)(?::\\s*(.+))?$",
+                    "captures": {
+                        "1": { "name": "comment.line.number-sign.http" },
+                        "2": { "name": "markup.deleted.http" },
+                        "3": { "name": "string.unquoted.http" }
+                    }
+                }
+            ]
+        },
+        "comment": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.http",
+                    "match": "^//.*$"
+                },
+                {
+                    "name": "comment.line.number-sign.http",
+                    "match": "^#(?!\\s*@name).*$"
+                },
+                {
+                    "name": "comment.line.double-hash.http",
+                    "match": "^##(?!\\s*(?:TEST|RETRY|AUTH)-[A-Z-]+).*$"
+                }
+            ]
+        },
+        "request-line": {
             "match": "^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT)\\s+([^\\s]+)\\s*(HTTP/[0-9.]+)?$",
             "captures": {
-                "1": { "name": "keyword.other.http.method" },
-                "2": { "name": "string.unquoted.http.url" },
-                "3": { "name": "constant.language.http.version" }
+                "1": { "name": "keyword.other.http-method.http" },
+                "2": { "name": "string.unquoted.http-url.http" },
+                "3": { "name": "constant.language.http-version.http" }
             }
         },
-        {
-            "match": "^([A-Za-z0-9-]+):\\s*(.*)$",
+        "header": {
+            "match": "^([^:]+):\\s*(.*)$",
             "captures": {
-                "1": { "name": "support.type.property-name.http" },
-                "2": { "name": "string.unquoted.http" }
+                "1": { "name": "string.other.header-name.http" },
+                "2": { "name": "string.other.header-value.http" }
             }
         },
-        {
+        "variable": {
             "match": "\\{\\{([^}]+)\\}\\}",
             "captures": {
                 "1": { "name": "variable.other.http" }
             }
         },
-        {
-            "begin": "^###\\s*region\\b",
-            "end": "^###\\s*endregion\\b",
-            "name": "meta.region.http"
+        "json-body": {
+            "begin": "\\{",
+            "end": "\\}",
+            "patterns": [
+                {
+                    "include": "#json-value"
+                }
+            ]
         },
-        {
-            "match": "#.*$",
-            "name": "comment.line.number-sign.http"
+        "json-value": {
+            "patterns": [
+                {
+                    "include": "#json-constant"
+                },
+                {
+                    "include": "#json-string"
+                },
+                {
+                    "include": "#json-number"
+                },
+                {
+                    "include": "#json-object"
+                },
+                {
+                    "include": "#json-array"
+                }
+            ]
+        },
+        "json-object": {
+            "begin": "\\{",
+            "beginCaptures": {
+                "0": { "name": "punctuation.definition.dictionary.begin.json" }
+            },
+            "end": "\\}",
+            "endCaptures": {
+                "0": { "name": "punctuation.definition.dictionary.end.json" }
+            },
+            "patterns": [
+                {
+                    "name": "meta.structure.dictionary.json",
+                    "begin": "\"",
+                    "beginCaptures": {
+                        "0": { "name": "punctuation.support.type.property-name.begin.json" }
+                    },
+                    "end": "\"",
+                    "endCaptures": {
+                        "0": { "name": "punctuation.support.type.property-name.end.json" }
+                    },
+                    "patterns": [
+                        {
+                            "name": "support.type.property-name.json",
+                            "match": "[^\"\\\\]+"
+                        }
+                    ]
+                },
+                {
+                    "include": "#json-value"
+                }
+            ]
+        },
+        "json-array": {
+            "begin": "\\[",
+            "beginCaptures": {
+                "0": { "name": "punctuation.definition.array.begin.json" }
+            },
+            "end": "\\]",
+            "endCaptures": {
+                "0": { "name": "punctuation.definition.array.end.json" }
+            },
+            "patterns": [
+                {
+                    "include": "#json-value"
+                }
+            ]
+        },
+        "json-string": {
+            "name": "string.quoted.double.json",
+            "begin": "\"",
+            "end": "\"",
+            "patterns": [
+                {
+                    "name": "constant.character.escape.json",
+                    "match": "\\\\."
+                }
+            ]
+        },
+        "json-number": {
+            "name": "constant.numeric.json",
+            "match": "-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?"
+        },
+        "json-constant": {
+            "match": "\\b(?:true|false|null)\\b",
+            "name": "constant.language.json"
         }
-    ]
+    }
 } 
