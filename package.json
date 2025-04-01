@@ -2,7 +2,7 @@
   "name": "teapie-extensions",
   "displayName": "TeaPie Extensions",
   "description": "Run TeaPie tests directly from VS Code",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "publisher": "kros",
   "icon": "resources/teapie.png",
   "repository": {
@@ -14,7 +14,7 @@
   },
   "homepage": "https://github.com/Kros-sk/TeaPie.Extensions#readme",
   "galleryBanner": {
-    "color": "#C80000",
+    "color": "#0C546C",
     "theme": "dark"
   },
   "keywords": [
