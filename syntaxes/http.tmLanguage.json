@@ -87,12 +87,26 @@
             ]
         },
         "request-line": {
-            "match": "^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT)\\s+([^\\s]+)\\s*(HTTP/[0-9.]+)?$",
-            "captures": {
-                "1": { "name": "keyword.other.http-method.http" },
-                "2": { "name": "string.unquoted.http-url.http" },
-                "3": { "name": "constant.language.http-version.http" }
-            }
+            "patterns": [
+                {
+                    "match": "^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT)\\s+",
+                    "captures": {
+                        "1": { "name": "keyword.other.http-method.http" }
+                    }
+                },
+                {
+                    "match": "\\s+(HTTP/[0-9.]+)$",
+                    "captures": {
+                        "1": { "name": "constant.language.http-version.http" }
+                    }
+                },
+                {
+                    "match": "\\s+([^\\s]+)\\s*",
+                    "captures": {
+                        "1": { "name": "entity.name.function.http" }
+                    }
+                }
+            ]
         },
         "header": {
             "match": "^([^:]+):\\s*(.*)$",
@@ -102,9 +116,27 @@
             }
         },
         "variable": {
-            "match": "\\{\\{([^}]+)\\}\\}",
+            "name": "meta.template.expression.http",
+            "match": "(\\{\\{)([^}]+)(\\}\\})",
             "captures": {
-                "1": { "name": "variable.other.http" }
+                "1": { "name": "punctuation.definition.template-expression.begin.http" },
+                "2": {
+                    "patterns": [
+                        {
+                            "match": "\\.",
+                            "name": "keyword.operator.accessor.http"
+                        },
+                        {
+                            "match": "\\$",
+                            "name": "keyword.operator.accessor.http"
+                        },
+                        {
+                            "match": "[^.\\s]+",
+                            "name": "variable.other.readwrite.http"
+                        }
+                    ]
+                },
+                "3": { "name": "punctuation.definition.template-expression.end.http" }
             }
         },
         "json-body": {

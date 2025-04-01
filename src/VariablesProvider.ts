@@ -2,20 +2,26 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import { parseVariablesFile } from './utils/variablesParser';
+
 export interface Variables {
-    GlobalVariables?: { [key: string]: string };
-    EnvironmentVariables?: { [key: string]: string };
-    CollectionVariables?: { [key: string]: any };
     TestCaseVariables?: { [key: string]: any };
+    CollectionVariables?: { [key: string]: any };
+    EnvironmentVariables?: { [key: string]: any };
+    GlobalVariables?: { [key: string]: any };
 }
 
 export class VariablesProvider {
     private static instance: VariablesProvider;
     private variables: Variables = {};
     private outputChannel: vscode.OutputChannel;
+    private lastLoadedPath: string | undefined;
+    private lastLoadTime: number = 0;
+    private lastModificationTime: number = 0;
+    private readonly CACHE_TIMEOUT = 300000; // 5 minút, keďže máme kontrolu mtimeMs
 
     private constructor() {
-        this.outputChannel = vscode.window.createOutputChannel('TeaPie Variables');
+        this.outputChannel = vscode.window.createOutputChannel('TeaPie');
     }
 
     public static getInstance(): VariablesProvider {
@@ -25,31 +31,41 @@ export class VariablesProvider {
         return VariablesProvider.instance;
     }
 
-    public async loadVariables(startPath: string): Promise<Variables> {
+    public async loadVariables(startPath: string, forceReload: boolean = false): Promise<Variables> {
         try {
-            this.outputChannel.appendLine(`\n[TeaPie] Loading variables from path: ${startPath}`);
+            const now = Date.now();
             
-            // Find the .teapie directory by traversing up from the start path
-            let currentPath = startPath;
-            let teapiePath = '';
-            
-            while (currentPath !== path.dirname(currentPath)) {
-                const potentialTeapiePath = path.join(currentPath, '.teapie');
-                this.outputChannel.appendLine(`[TeaPie] Checking for .teapie in: ${potentialTeapiePath}`);
-                if (fs.existsSync(potentialTeapiePath)) {
-                    teapiePath = potentialTeapiePath;
-                    this.outputChannel.appendLine(`[TeaPie] Found .teapie directory at: ${teapiePath}`);
-                    break;
+            // Return cached variables if:
+            // 1. The path is the same
+            // 2. Cache hasn't expired
+            // 3. Force reload is not requested
+            // 4. File hasn't been modified
+            if (!forceReload && 
+                this.lastLoadedPath === startPath && 
+                (now - this.lastLoadTime) < this.CACHE_TIMEOUT) {
+                
+                // Even with cache, check if file was modified
+                const teapiePath = await this.findTeaPieDirectory(startPath);
+                if (teapiePath) {
+                    const variablesPath = path.join(teapiePath, 'cache', 'variables', 'variables.json');
+                    if (fs.existsSync(variablesPath)) {
+                        const stats = fs.statSync(variablesPath);
+                        if (stats.mtimeMs <= this.lastModificationTime) {
+                            this.outputChannel.appendLine(`[TeaPie] Using cached variables from: ${startPath}`);
+                            return this.variables;
+                        }
+                    }
                 }
-                currentPath = path.dirname(currentPath);
             }
 
+            this.outputChannel.appendLine(`\n[TeaPie] Loading variables from path: ${startPath}`);
+            
+            const teapiePath = await this.findTeaPieDirectory(startPath);
             if (!teapiePath) {
                 this.outputChannel.appendLine('[TeaPie] No .teapie directory found');
                 return {};
             }
 
-            // Update path to include cache/variables subdirectory
             const variablesPath = path.join(teapiePath, 'cache', 'variables', 'variables.json');
             this.outputChannel.appendLine(`[TeaPie] Looking for variables at: ${variablesPath}`);
             
@@ -58,8 +74,14 @@ export class VariablesProvider {
                 return {};
             }
 
-            const content = fs.readFileSync(variablesPath, 'utf8');
-            this.variables = JSON.parse(content);
+            const stats = fs.statSync(variablesPath);
+            const content = await fs.promises.readFile(variablesPath, 'utf8');
+            this.variables = parseVariablesFile(content);
+            
+            // Update cache metadata
+            this.lastLoadedPath = startPath;
+            this.lastLoadTime = now;
+            this.lastModificationTime = stats.mtimeMs;
             
             this.outputChannel.appendLine('[TeaPie] Loaded variables:');
             this.outputChannel.appendLine(JSON.stringify(this.variables, null, 2));
@@ -67,9 +89,30 @@ export class VariablesProvider {
             return this.variables;
         } catch (error) {
             this.outputChannel.appendLine(`[TeaPie] Error loading variables: ${error}`);
-            console.error('Error loading variables:', error);
             return {};
         }
+    }
+
+    private async findTeaPieDirectory(startPath: string): Promise<string | undefined> {
+        let currentPath = startPath;
+        
+        while (currentPath !== path.dirname(currentPath)) {
+            const potentialTeapiePath = path.join(currentPath, '.teapie');
+            this.outputChannel.appendLine(`[TeaPie] Checking for .teapie in: ${potentialTeapiePath}`);
+            
+            if (fs.existsSync(potentialTeapiePath)) {
+                this.outputChannel.appendLine(`[TeaPie] Found .teapie directory at: ${potentialTeapiePath}`);
+                return potentialTeapiePath;
+            }
+            
+            currentPath = path.dirname(currentPath);
+        }
+        
+        return undefined;
+    }
+
+    public getVariables(): Variables {
+        return this.variables;
     }
 
     public getVariableValue(variableName: string): string | undefined {
@@ -107,7 +150,7 @@ export class VariablesProvider {
         return result;
     }
 
-    public showOutput() {
+    public showOutput(): void {
         this.outputChannel.show();
     }
 } 

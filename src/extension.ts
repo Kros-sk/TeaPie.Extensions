@@ -9,6 +9,7 @@ import { HttpHoverProvider } from './HttpHoverProvider';
 import { HttpPreviewProvider } from './HttpPreviewProvider';
 import { TeaPieLanguageServer } from './TeaPieLanguageServer';
 import { TestRenameProvider } from './TestRenameProvider';
+import { VariablesProvider } from './VariablesProvider';
 import { VisualTestEditorProvider } from './VisualTestEditorProvider';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -35,6 +36,38 @@ export function activate(context: vscode.ExtensionContext) {
     
     // Initialize TestRenameProvider
     const testRenameProvider = new TestRenameProvider(context);
+
+    // Load variables for HTTP files
+    const loadVariablesForFile = async (document: vscode.TextDocument, forceReload: boolean = false) => {
+        if (document.languageId === 'http') {
+            const variablesProvider = VariablesProvider.getInstance();
+            await variablesProvider.loadVariables(path.dirname(document.uri.fsPath), forceReload);
+        }
+    };
+
+    // Load variables when a file is opened
+    context.subscriptions.push(
+        vscode.workspace.onDidOpenTextDocument(doc => loadVariablesForFile(doc, false))
+    );
+
+    // Load variables when a file is changed - force reload to get fresh values
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument(doc => loadVariablesForFile(doc, true))
+    );
+
+    // Load variables when switching between files
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(async editor => {
+            if (editor?.document) {
+                await loadVariablesForFile(editor.document, false);
+            }
+        })
+    );
+
+    // Load variables for the currently open file if it's an HTTP file
+    if (vscode.window.activeTextEditor?.document.languageId === 'http') {
+        loadVariablesForFile(vscode.window.activeTextEditor.document, false);
+    }
 
     // Register a command to reload XML documentation
     context.subscriptions.push(
