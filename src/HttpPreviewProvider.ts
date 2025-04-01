@@ -223,7 +223,7 @@ export class HttpPreviewProvider {
                     html += `<div class="section-title">Body</div>\n`;
                     const processedBody = variablesProvider.replaceVariables(bodyContent, HttpPreviewProvider.showVariableValues);
                     const formattedBody = this.formatBody(processedBody);
-                    html += `<pre class="http-body"><code>${this.syntaxHighlight(formattedBody)}</code></pre>\n`;
+                    html += `<pre class="http-body"><code>${formattedBody}</code></pre>\n`;
                 }
 
                 currentRequest = '';
@@ -439,17 +439,37 @@ export class HttpPreviewProvider {
                         margin: 8px 0;
                         font-family: monospace;
                         white-space: pre-wrap;
+                        tab-size: 4;
+                    }
+                    .http-body code {
+                        display: block;
+                        line-height: 1.5;
+                        background-color: transparent;
                     }
                     .comment {
                         color: var(--vscode-descriptionForeground);
                         font-style: italic;
                         margin: 0.5em 0;
                     }
-                    .string { color: var(--vscode-debugTokenExpression-string); }
-                    .number { color: var(--vscode-debugTokenExpression-number); }
-                    .boolean { color: var(--vscode-debugTokenExpression-boolean); }
-                    .null { color: var(--vscode-debugTokenExpression-error); }
-                    .key { color: var(--vscode-debugTokenExpression-name); }
+                    /* JSON syntax highlighting */
+                    .json-string { 
+                        color: var(--vscode-debugTokenExpression-string);
+                    }
+                    .json-number { 
+                        color: var(--vscode-debugTokenExpression-number);
+                    }
+                    .json-boolean { 
+                        color: var(--vscode-debugTokenExpression-boolean);
+                        font-weight: bold;
+                    }
+                    .json-null { 
+                        color: var(--vscode-debugTokenExpression-error);
+                        font-weight: bold;
+                    }
+                    .json-key { 
+                        color: var(--vscode-debugTokenExpression-name);
+                        font-weight: bold;
+                    }
                     .method { color: var(--vscode-debugIcon-startForeground); font-weight: bold; }
                     .url { color: var(--vscode-textLink-foreground); }
                     .header-name { color: var(--vscode-debugTokenExpression-name); }
@@ -603,25 +623,6 @@ export class HttpPreviewProvider {
         `;
     }
 
-    private static syntaxHighlight(text: string): string {
-        // Highlight HTTP method and URL
-        text = text.replace(/^(GET|POST|PUT|DELETE|PATCH)(\s+)([^\n]+)/gm,
-            '<span class="method">$1</span>$2<span class="url">$3</span>');
-
-        // Highlight headers
-        text = text.replace(/^([^:\n]+)(:)(.+)$/gm,
-            '<span class="header-name">$1</span>$2<span class="header-value">$3</span>');
-
-        // Highlight special header format in body
-        text = text.replace(/"header-name">\s*"([^"]+)"/g, '"<span class="key">$1</span>"');
-        text = text.replace(/"header-value">\s*"([^"]+)"/g, '"<span class="string">$1</span>"');
-        text = text.replace(/"header-value">\s*(\d+)/g, '<span class="number">$1</span>');
-        text = text.replace(/"header-value">\s*(true|false)/g, '<span class="boolean">$1</span>');
-        text = text.replace(/"header-value">\s*(null)/g, '<span class="null">$1</span>');
-
-        return text;
-    }
-
     private static formatBody(body: string): string {
         // For special header format, convert to standard JSON
         if (body.includes('"header-name">') || body.includes('"header-value">')) {
@@ -641,15 +642,76 @@ export class HttpPreviewProvider {
                 }
             }
 
-            return JSON.stringify(jsonObj, null, 2);
+            return this.formatJsonString(JSON.stringify(jsonObj));
         }
 
         // For standard JSON, try to parse and format
         try {
-            const jsonObj = JSON.parse(body);
-            return JSON.stringify(jsonObj, null, 2);
+            // First try to parse as JSON
+            const jsonObj = JSON.parse(body.trim());
+            return this.formatJsonString(JSON.stringify(jsonObj));
         } catch {
-            return body;
+            // If not JSON, try to detect if it's a JSON-like string that needs cleanup
+            const cleanBody = body.trim()
+                .replace(/,\s*$/, '')  // Remove trailing commas
+                .replace(/([{,])\s*([a-zA-Z0-9_]+)\s*:/g, '$1"$2":'); // Add quotes to unquoted keys
+            
+            try {
+                const jsonObj = JSON.parse(cleanBody);
+                return this.formatJsonString(JSON.stringify(jsonObj));
+            } catch {
+                // If still not JSON, return as is without any highlighting
+                return body;
+            }
+        }
+    }
+
+    private static syntaxHighlight(text: string): string {
+        // Don't apply syntax highlighting if it looks like JSON
+        if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+            try {
+                JSON.parse(text);
+                return this.formatJsonString(text);
+            } catch {
+                // Continue with regular syntax highlighting if not valid JSON
+            }
+        }
+
+        // Highlight HTTP method and URL
+        text = text.replace(/^(GET|POST|PUT|DELETE|PATCH)(\s+)([^\n]+)/gm,
+            '<span class="method">$1</span>$2<span class="url">$3</span>');
+
+        // Highlight headers
+        text = text.replace(/^([^:\n]+)(:)(.+)$/gm,
+            '<span class="header-name">$1</span>$2<span class="header-value">$3</span>');
+
+        return text;
+    }
+
+    private static formatJsonString(jsonString: string): string {
+        try {
+            const obj = JSON.parse(jsonString);
+            return JSON.stringify(obj, null, 4)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+                    let cls = 'number';
+                    if (/^"/.test(match)) {
+                        if (/:$/.test(match)) {
+                            cls = 'key';
+                        } else {
+                            cls = 'string';
+                        }
+                    } else if (/true|false/.test(match)) {
+                        cls = 'boolean';
+                    } else if (/null/.test(match)) {
+                        cls = 'null';
+                    }
+                    return `<span class="json-${cls}">${match}</span>`;
+                });
+        } catch {
+            return jsonString;
         }
     }
 
