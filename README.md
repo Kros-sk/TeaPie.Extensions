@@ -54,6 +54,15 @@ Right-click on files or folders in the TeaPie Explorer to access additional acti
 
 ## Release Notes
 
+### 0.0.16
+
+- ✨ Enhanced HTTP file preview with variable support
+  - Added ability to view TeaPie variables in HTTP preview
+  - Toggle between variable names and their values
+  - Variables are loaded from `.teapie/cache/variables/variables.json`
+  - Support for all variable scopes (Global, Environment, Collection, TestCase)
+  - Real-time preview updates when toggling between variable names and values
+
 ### 0.0.11
 
 Initial release with basic TeaPie integration features.
