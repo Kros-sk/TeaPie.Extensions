@@ -15,15 +15,22 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+// Create output channel for logging
+let outputChannel: vscode.OutputChannel;
+
 export function activate(context: vscode.ExtensionContext) {
-    console.log('Activating TeaPie extension...');
+    // Initialize output channel
+    outputChannel = vscode.window.createOutputChannel('TeaPie Extensions');
+    outputChannel.show(true);
+    
+    outputChannel.appendLine('Activating TeaPie extension...');
     
     // Initialize the TeaPie language server
     const server = TeaPieLanguageServer.getInstance(context);
     server.initialize().then(() => {
-        console.log('TeaPie language server initialized successfully');
+        outputChannel.appendLine('TeaPie language server initialized successfully');
     }).catch(error => {
-        console.error('Failed to initialize TeaPie language server:', error);
+        outputChannel.appendLine(`Failed to initialize TeaPie language server: ${error}`);
     });
     
     // Initialize TestRenameProvider
@@ -54,40 +61,40 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Handle tree view selection
     treeView.onDidChangeSelection(async event => {
-        console.log('Selection changed:', event.selection);
+        outputChannel.appendLine('Selection changed: ' + JSON.stringify(event.selection));
         const item = event.selection[0] as TeaPieTreeItem;
-        console.log('Selected item:', {
+        outputChannel.appendLine('Selected item: ' + JSON.stringify({
             label: item?.label,
             resourceUri: item?.resourceUri,
             isDirectory: item?.isDirectory,
             collapsibleState: item?.collapsibleState,
             description: item?.description,
             tooltip: item?.tooltip
-        });
+        }));
         
         if (item && !item.isDirectory && item.resourceUri) {
             try {
-                console.log('Attempting to open file:', {
+                outputChannel.appendLine('Attempting to open file: ' + JSON.stringify({
                     fsPath: item.resourceUri.fsPath,
                     path: item.resourceUri.path,
                     scheme: item.resourceUri.scheme,
                     authority: item.resourceUri.authority
-                });
+                }));
                 
                 const document = await vscode.workspace.openTextDocument(item.resourceUri);
-                console.log('Document opened:', document.uri.fsPath);
+                outputChannel.appendLine('Document opened: ' + document.uri.fsPath);
                 
                 await vscode.window.showTextDocument(document, { 
                     preview: false,
                     viewColumn: vscode.ViewColumn.Active
                 });
-                console.log('Document shown in editor');
+                outputChannel.appendLine('Document shown in editor');
             } catch (error) {
-                console.error('Failed to open file:', error);
+                outputChannel.appendLine(`Failed to open file: ${error}`);
                 vscode.window.showErrorMessage(`Failed to open file: ${error}`);
             }
         } else {
-            console.log('Item is either null, a directory, or has no resourceUri');
+            outputChannel.appendLine('Item is either null, a directory, or has no resourceUri');
         }
     });
 
@@ -116,7 +123,7 @@ export function activate(context: vscode.ExtensionContext) {
                 viewColumn: vscode.ViewColumn.Active
             });
         } catch (error) {
-            console.error('Failed to open file:', error);
+            outputChannel.appendLine(`Failed to open file: ${error}`);
             vscode.window.showErrorMessage(`Failed to open file: ${error}`);
         }
     });
