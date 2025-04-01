@@ -2,12 +2,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import { VariablesProvider } from './VariablesProvider';
+
 export class HttpPreviewProvider {
     private static currentPanel: vscode.WebviewPanel | undefined;
     private static currentFile: vscode.Uri | undefined;
     private static fileWatcher: vscode.FileSystemWatcher | undefined;
+    private static showVariableValues: boolean = true;
 
-    public static show(uri: vscode.Uri) {
+    public static async show(uri: vscode.Uri) {
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn
             : undefined;
@@ -15,10 +18,15 @@ export class HttpPreviewProvider {
         // Store the current file URI
         HttpPreviewProvider.currentFile = uri;
 
+        // Load variables and show output
+        const variablesProvider = VariablesProvider.getInstance();
+        await variablesProvider.loadVariables(path.dirname(uri.fsPath));
+        variablesProvider.showOutput();
+
         // If we already have a panel, show it
         if (HttpPreviewProvider.currentPanel) {
             HttpPreviewProvider.currentPanel.reveal(column === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One);
-            HttpPreviewProvider.currentPanel.webview.html = HttpPreviewProvider.getWebviewContent(uri);
+            HttpPreviewProvider.currentPanel.webview.html = await HttpPreviewProvider.getWebviewContent(uri);
             return;
         }
 
@@ -33,18 +41,34 @@ export class HttpPreviewProvider {
             }
         );
 
-        HttpPreviewProvider.currentPanel.webview.html = HttpPreviewProvider.getWebviewContent(uri);
+        HttpPreviewProvider.currentPanel.webview.html = await HttpPreviewProvider.getWebviewContent(uri);
+
+        // Handle messages from the webview
+        HttpPreviewProvider.currentPanel.webview.onDidReceiveMessage(
+            async message => {
+                switch (message.command) {
+                    case 'toggleVariables':
+                        HttpPreviewProvider.showVariableValues = !HttpPreviewProvider.showVariableValues;
+                        if (HttpPreviewProvider.currentPanel && HttpPreviewProvider.currentFile) {
+                            HttpPreviewProvider.currentPanel.webview.html = await HttpPreviewProvider.getWebviewContent(HttpPreviewProvider.currentFile);
+                        }
+                        return;
+                }
+            },
+            undefined,
+            []
+        );
 
         // Setup file watcher if not already set up
         if (!HttpPreviewProvider.fileWatcher) {
             HttpPreviewProvider.fileWatcher = vscode.workspace.createFileSystemWatcher('**/*-req.http');
             
             // Watch for file changes
-            HttpPreviewProvider.fileWatcher.onDidChange((changedUri) => {
+            HttpPreviewProvider.fileWatcher.onDidChange(async (changedUri) => {
                 if (HttpPreviewProvider.currentPanel && 
                     HttpPreviewProvider.currentFile && 
                     changedUri.fsPath === HttpPreviewProvider.currentFile.fsPath) {
-                    HttpPreviewProvider.currentPanel.webview.html = HttpPreviewProvider.getWebviewContent(changedUri);
+                    HttpPreviewProvider.currentPanel.webview.html = await HttpPreviewProvider.getWebviewContent(changedUri);
                 }
             });
         }
@@ -60,7 +84,8 @@ export class HttpPreviewProvider {
                 }
                 HttpPreviewProvider.currentFile = undefined;
             },
-            null
+            null,
+            []
         );
     }
 
@@ -121,8 +146,9 @@ export class HttpPreviewProvider {
         `;
     }
 
-    private static getWebviewContent(uri: vscode.Uri): string {
+    private static async getWebviewContent(uri: vscode.Uri): Promise<string> {
         const content = fs.readFileSync(uri.fsPath, 'utf8');
+        const variablesProvider = VariablesProvider.getInstance();
 
         // Parse HTTP content and convert to HTML
         const lines = content.split('\n');
@@ -147,15 +173,18 @@ export class HttpPreviewProvider {
                 // Add request line if any
                 if (requestLine) {
                     html += `<div class="section-title">Request</div>\n`;
-                    const [method, ...urlParts] = requestLine.split(' ');
+                    const processedRequestLine = variablesProvider.replaceVariables(requestLine, HttpPreviewProvider.showVariableValues);
+                    const [method, ...urlParts] = processedRequestLine.split(' ');
                     const url = urlParts.join(' ');
                     const escapedHeaders = currentHeaders.split('\n')
                         .filter(h => h.includes(':'))
+                        .map(h => variablesProvider.replaceVariables(h, HttpPreviewProvider.showVariableValues))
                         .map(h => h.replace(/"/g, '\\"'));
 
                     // Format body if it exists
                     let formattedBody = bodyContent.trim();
                     if (formattedBody) {
+                        formattedBody = variablesProvider.replaceVariables(formattedBody, HttpPreviewProvider.showVariableValues);
                         try {
                             // Try to parse as JSON first
                             const jsonBody = JSON.parse(formattedBody);
@@ -167,7 +196,7 @@ export class HttpPreviewProvider {
                     }
 
                     html += `<div class="http-request">
-                        ${this.syntaxHighlight(requestLine)}
+                        ${this.syntaxHighlight(processedRequestLine)}
                         <button class="copy-curl-btn" onclick="copyCurlCommand(this)" 
                             data-method="${method}"
                             data-url="${url}"
@@ -185,13 +214,15 @@ export class HttpPreviewProvider {
                 // Add headers with title if any
                 if (currentHeaders) {
                     html += `<div class="section-title">Headers</div>\n`;
-                    html += `<pre class="http-headers">${this.syntaxHighlight(currentHeaders)}</pre>\n`;
+                    const processedHeaders = variablesProvider.replaceVariables(currentHeaders, HttpPreviewProvider.showVariableValues);
+                    html += `<pre class="http-headers">${this.syntaxHighlight(processedHeaders)}</pre>\n`;
                 }
 
                 // Add body with title if any
                 if (bodyContent.trim()) {
                     html += `<div class="section-title">Body</div>\n`;
-                    const formattedBody = this.formatBody(bodyContent);
+                    const processedBody = variablesProvider.replaceVariables(bodyContent, HttpPreviewProvider.showVariableValues);
+                    const formattedBody = this.formatBody(processedBody);
                     html += `<pre class="http-body"><code>${this.syntaxHighlight(formattedBody)}</code></pre>\n`;
                 }
 
@@ -269,6 +300,15 @@ export class HttpPreviewProvider {
 
         // Finish the last request
         finishCurrentRequest();
+
+        // Add toggle button to the top of the page
+        const toggleButton = `
+            <div class="toolbar">
+                <button onclick="toggleVariables()" class="toggle-btn">
+                    ${HttpPreviewProvider.showVariableValues ? 'Show Variable Names' : 'Show Variable Values'}
+                </button>
+            </div>
+        `;
 
         return `
             <!DOCTYPE html>
@@ -439,8 +479,36 @@ export class HttpPreviewProvider {
                         margin: 0 8px;
                         color: var(--vscode-descriptionForeground);
                     }
+                    .toolbar {
+                        position: sticky;
+                        top: 0;
+                        background-color: var(--vscode-editor-background);
+                        padding: 10px 0;
+                        border-bottom: 1px solid var(--vscode-panel-border);
+                        z-index: 1000;
+                        margin-bottom: 20px;
+                    }
+                    .toggle-btn {
+                        background-color: var(--vscode-button-background);
+                        color: var(--vscode-button-foreground);
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                    }
+                    .toggle-btn:hover {
+                        background-color: var(--vscode-button-hoverBackground);
+                    }
                 </style>
                 <script>
+                    const vscode = acquireVsCodeApi();
+                    
+                    function toggleVariables() {
+                        vscode.postMessage({
+                            command: 'toggleVariables'
+                        });
+                    }
+                    
                     function copyCurlCommand(button) {
                         const method = button.getAttribute('data-method') || '';
                         const url = button.getAttribute('data-url') || '';
@@ -527,6 +595,7 @@ export class HttpPreviewProvider {
                 </script>
             </head>
             <body>
+                ${toggleButton}
                 ${this.generateBreadcrumb(uri.fsPath)}
                 ${html}
             </body>
