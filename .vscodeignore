@@ -1,0 +1,6 @@
+**/test/**
+**/*.map
+.vscode/**
+**/*.ts
+README.md
+CHANGELOG.md

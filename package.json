@@ -2,7 +2,7 @@
   "name": "teapie-extensions",
   "displayName": "TeaPie Extensions",
   "description": "Run TeaPie tests directly from VS Code",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "publisher": "kros",
   "icon": "resources/teapie.png",
   "repository": {
@@ -276,8 +276,13 @@
     "languages": [
       {
         "id": "http",
-        "extensions": [".http"],
-        "aliases": ["HTTP", "http"],
+        "extensions": [
+          ".http"
+        ],
+        "aliases": [
+          "HTTP",
+          "http"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -296,7 +301,8 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --target=node18 --outfile=out/extension.js",
+    "vscode:prepublish": "npm run bundle",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
@@ -333,6 +339,7 @@
     "deep-is": "^0.1.4",
     "dir-glob": "^3.0.1",
     "doctrine": "^3.0.0",
+    "esbuild": "^0.25.2",
     "escape-string-regexp": "^4.0.0",
     "eslint-scope": "^7.2.2",
     "eslint-visitor-keys": "^3.4.3",
