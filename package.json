@@ -155,6 +155,11 @@
         "command": "teapie-extensions.runHttpTest",
         "title": "Run test (F5)",
         "icon": "$(play)"
+      },
+      {
+        "command": "teapie-extensions.openDocs",
+        "title": "Open TeaPie Documentation",
+        "category": "TeaPie"
       }
     ],
     "menus": {

@@ -30,6 +30,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `TeaPie: Explore Collection` - Browse your test collection
 - `TeaPie: Refresh Explorer` - Refresh the TeaPie Explorer view
 - `TeaPie: Open HTML Preview (F6)` - Open the current HTTP file in HTML preview mode
+- `TeaPie: Open Documentation` - Open TeaPie documentation website in your default browser
 
 ### Keyboard Shortcuts
 
@@ -53,6 +54,12 @@ Right-click on files or folders in the TeaPie Explorer to access additional acti
 - TeaPie installed on your system
 
 ## Release Notes
+
+### 0.0.17
+
+- ✨ Added new command to open TeaPie documentation
+  - Quick access to TeaPie documentation website (www.teapie.fun)
+  - Available through Command Palette under TeaPie category
 
 ### 0.0.16
 

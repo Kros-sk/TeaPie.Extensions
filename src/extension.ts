@@ -565,7 +565,11 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // Register commands
     context.subscriptions.push(
+        vscode.commands.registerCommand('teapie-extensions.openDocs', () => {
+            vscode.env.openExternal(vscode.Uri.parse('https://www.teapie.fun'));
+        }),
         treeView,
         refreshDisposable,
         openFileDisposable,
