@@ -7,6 +7,7 @@ import { TeaPieTreeItem, TeaPieTreeViewProvider } from './TeaPieTreeViewProvider
 import { HttpCompletionProvider } from './HttpCompletionProvider';
 import { HttpHoverProvider } from './HttpHoverProvider';
 import { HttpPreviewProvider } from './HttpPreviewProvider';
+import { TeaPieInitializer } from './utils/TeaPieInitializer';
 import { TeaPieLanguageServer } from './TeaPieLanguageServer';
 import { TestRenameProvider } from './TestRenameProvider';
 import { VariablesProvider } from './VariablesProvider';
@@ -19,13 +20,17 @@ const execAsync = promisify(exec);
 // Create output channel for logging
 let outputChannel: vscode.OutputChannel;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
     // Initialize output channel
     outputChannel = vscode.window.createOutputChannel('TeaPie Extensions');
     outputChannel.show(true);
-    
+
     outputChannel.appendLine('Activating TeaPie extension...');
-    
+
+    // Initialize TeaPie folder structure
+    const initializer = new TeaPieInitializer(outputChannel);
+    await initializer.initialize();
+
     // Initialize the TeaPie language server
     const server = TeaPieLanguageServer.getInstance(context);
     server.initialize().then(() => {
@@ -33,7 +38,7 @@ export function activate(context: vscode.ExtensionContext) {
     }).catch(error => {
         outputChannel.appendLine(`Failed to initialize TeaPie language server: ${error}`);
     });
-    
+
     // Initialize TestRenameProvider
     const testRenameProvider = new TestRenameProvider(context);
 
@@ -104,7 +109,7 @@ export function activate(context: vscode.ExtensionContext) {
             description: item?.description,
             tooltip: item?.tooltip
         }));
-        
+
         if (item && !item.isDirectory && item.resourceUri) {
             try {
                 outputChannel.appendLine('Attempting to open file: ' + JSON.stringify({
@@ -113,11 +118,11 @@ export function activate(context: vscode.ExtensionContext) {
                     scheme: item.resourceUri.scheme,
                     authority: item.resourceUri.authority
                 }));
-                
+
                 const document = await vscode.workspace.openTextDocument(item.resourceUri);
                 outputChannel.appendLine('Document opened: ' + document.uri.fsPath);
-                
-                await vscode.window.showTextDocument(document, { 
+
+                await vscode.window.showTextDocument(document, {
                     preview: false,
                     viewColumn: vscode.ViewColumn.Active
                 });
@@ -151,7 +156,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
 
             const document = await vscode.workspace.openTextDocument(uri);
-            await vscode.window.showTextDocument(document, { 
+            await vscode.window.showTextDocument(document, {
                 preview: false,
                 viewColumn: vscode.ViewColumn.Active
             });
@@ -263,7 +268,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const currentFile = editor.document.uri.fsPath;
         const nextFile = findNextTestFile(currentFile);
-        
+
         if (nextFile) {
             try {
                 const document = await vscode.workspace.openTextDocument(nextFile);
@@ -284,7 +289,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const currentFile = editor.document.uri.fsPath;
         const nextTestCase = await findNextTestCase(currentFile, false);
-        
+
         if (nextTestCase) {
             try {
                 const document = await vscode.workspace.openTextDocument(nextTestCase);
@@ -305,7 +310,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const currentFile = editor.document.uri.fsPath;
         const nextTestCase = await findNextTestCase(currentFile, true);
-        
+
         if (nextTestCase) {
             try {
                 const document = await vscode.workspace.openTextDocument(nextTestCase);
@@ -352,7 +357,7 @@ export function activate(context: vscode.ExtensionContext) {
             // Run the generate command
             const terminal = vscode.window.createTerminal('TeaPie');
             terminal.show();
-            
+
             const commandStr = `teapie generate "${pascalCaseName}" "${targetDir}"`;
             terminal.sendText(commandStr);
             terminal.sendText('exit'); // Close the terminal after command completes
@@ -373,7 +378,7 @@ export function activate(context: vscode.ExtensionContext) {
             // Find and open the .http file with retries
             const httpFile = path.join(targetDir, `${pascalCaseName}-req.http`);
             const fileExists = await checkFile(httpFile);
-            
+
             if (fileExists) {
                 const document = await vscode.workspace.openTextDocument(httpFile);
                 await vscode.window.showTextDocument(document, { preview: false });
@@ -402,10 +407,10 @@ export function activate(context: vscode.ExtensionContext) {
             // Run the explore command
             const terminal = vscode.window.createTerminal('TeaPie');
             terminal.show();
-            
+
             // Create a temporary file for output
             const tempOutputFile = path.join(targetDir, '.teapie-explore-output.txt');
-            
+
             // Run command and redirect output to file
             const commandStr = `teapie explore "${targetDir}" > "${tempOutputFile}"`;
             terminal.sendText(commandStr);
@@ -426,7 +431,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             // Wait for the output file
             const fileExists = await checkFile(tempOutputFile);
-            
+
             if (fileExists) {
                 try {
                     // Read and display the output
@@ -435,7 +440,7 @@ export function activate(context: vscode.ExtensionContext) {
                     outputChannel.appendLine('TeaPie Collection Structure:');
                     outputChannel.appendLine('=========================');
                     outputChannel.appendLine(output);
-                    
+
                     // Clean up the temporary file
                     fs.unlinkSync(tempOutputFile);
                 } catch (error) {
@@ -591,17 +596,17 @@ export function activate(context: vscode.ExtensionContext) {
 function findHttpFile(filePath: string): string | null {
     const dir = path.dirname(filePath);
     const baseName = path.basename(filePath, path.extname(filePath));
-    
+
     // Remove any existing suffixes (-init, -test, -req)
     const baseNameWithoutSuffix = baseName.replace(/-init$|-test$|-req$/, '');
-    
+
     // Look for the .http file
     const httpFile = path.join(dir, `${baseNameWithoutSuffix}-req.http`);
-    
+
     if (fs.existsSync(httpFile)) {
         return httpFile;
     }
-    
+
     return null;
 }
 
@@ -609,29 +614,29 @@ function findNextTestFile(currentFile: string): string | null {
     const dir = path.dirname(currentFile);
     const baseName = path.basename(currentFile);
     const baseNameWithoutExt = baseName.substring(0, baseName.lastIndexOf('-') !== -1 ? baseName.lastIndexOf('-') : baseName.lastIndexOf('.'));
-    
+
     // Define the sequence of file types
     const fileTypes = [
         { suffix: '-init.csx', next: '-req.http' },
         { suffix: '-req.http', next: '-test.csx' },
         { suffix: '-test.csx', next: '-init.csx' }
     ];
-    
+
     // Find current file type
     const currentType = fileTypes.find(type => baseName.endsWith(type.suffix));
     if (!currentType) {
         return null;
     }
-    
+
     // Get next file type in sequence
     const nextType = currentType.next;
     const nextFile = path.join(dir, `${baseNameWithoutExt}${nextType}`);
-    
+
     // If next file exists, return it
     if (fs.existsSync(nextFile)) {
         return nextFile;
     }
-    
+
     // If next file doesn't exist, try the next one in sequence
     const nextTypeIndex = fileTypes.findIndex(type => type.suffix === nextType);
     for (let i = 1; i <= fileTypes.length; i++) {
@@ -641,7 +646,7 @@ function findNextTestFile(currentFile: string): string | null {
             return alternativeFile;
         }
     }
-    
+
     return null;
 }
 
@@ -659,16 +664,16 @@ async function findNextTestCase(currentFile: string, includeSubdirs: boolean): P
 
     // Convert file paths to strings for comparison
     const filePaths = httpFiles.map(file => file.fsPath);
-    
+
     // Get the current directory
     const currentDir = path.dirname(currentFile);
-    
+
     // Filter files based on directory if not including subdirectories
     let relevantFiles = filePaths;
     if (!includeSubdirs) {
         relevantFiles = filePaths.filter(file => path.dirname(file) === currentDir);
     }
-    
+
     // Sort files to ensure consistent ordering
     relevantFiles.sort();
 
@@ -694,7 +699,7 @@ async function findNextTestCase(currentFile: string, includeSubdirs: boolean): P
 async function runTeaPieCommand(command: string, target: string): Promise<void> {
     const terminal = vscode.window.createTerminal('TeaPie');
     terminal.show();
-    
+
     const commandStr = `teapie ${command} "${target}"`;
     terminal.sendText(commandStr);
 }
@@ -707,7 +712,7 @@ async function setupCsxSupport(): Promise<void> {
     }
 
     const workspacePath = workspaceFolder.uri.fsPath;
-    
+
     try {
         // Create omnisharp.json
         const omnisharpConfig = {
@@ -717,9 +722,9 @@ async function setupCsxSupport(): Promise<void> {
                 enableScriptNuGetReferences: true
             }
         };
-        
+
         await writeJsonFile(path.join(workspacePath, 'omnisharp.json'), omnisharpConfig);
-        
+
         // Create global.json
         const globalConfig = {
             sdk: {
@@ -727,19 +732,19 @@ async function setupCsxSupport(): Promise<void> {
                 rollForward: "latestMinor"
             }
         };
-        
+
         await writeJsonFile(path.join(workspacePath, 'global.json'), globalConfig);
-        
+
         // Ensure .vscode directory exists
         const vscodeDir = path.join(workspacePath, '.vscode');
         if (!fs.existsSync(vscodeDir)) {
             fs.mkdirSync(vscodeDir);
         }
-        
+
         // Create/update settings.json
         const settingsPath = path.join(vscodeDir, 'settings.json');
         let settingsConfig: any = {};
-        
+
         if (fs.existsSync(settingsPath)) {
             try {
                 const content = await fs.promises.readFile(settingsPath, 'utf8');
@@ -748,7 +753,7 @@ async function setupCsxSupport(): Promise<void> {
                 console.error('Error reading settings.json:', error);
             }
         }
-        
+
         // Update settings
         const csxSettings = {
             "omnisharp.enableRoslynAnalyzers": true,
@@ -760,19 +765,19 @@ async function setupCsxSupport(): Promise<void> {
             "omnisharp.organizeImportsOnFormat": true,
             "dotnet.completion.showCompletionItemsFromUnimportedNamespaces": true
         };
-        
+
         // Merge settings
         settingsConfig = { ...settingsConfig, ...csxSettings };
-        
+
         await writeJsonFile(settingsPath, settingsConfig);
-        
+
         // Create/update launch.json
         const launchPath = path.join(vscodeDir, 'launch.json');
         let launchConfig: any = {
             version: "0.2.0",
             configurations: []
         };
-        
+
         if (fs.existsSync(launchPath)) {
             try {
                 const content = await fs.promises.readFile(launchPath, 'utf8');
@@ -781,7 +786,7 @@ async function setupCsxSupport(): Promise<void> {
                 console.error('Error reading launch.json:', error);
             }
         }
-        
+
         // Add CSX debug configuration if it doesn't exist
         const csxDebugConfig = {
             name: "Debug C# Script",
@@ -796,15 +801,15 @@ async function setupCsxSupport(): Promise<void> {
             stopAtEntry: false,
             console: "internalConsole"
         };
-        
+
         // Check if config already exists
-        const configExists = launchConfig.configurations.some((config: any) => 
+        const configExists = launchConfig.configurations.some((config: any) =>
             config.name === "Debug C# Script" && config.type === "coreclr");
-        
+
         if (!configExists) {
             launchConfig.configurations.push(csxDebugConfig);
         }
-        
+
         await writeJsonFile(launchPath, launchConfig);
 
         // Create a sample.csx file with common imports if it doesn't exist
