@@ -30,7 +30,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `TeaPie: Explore Collection` - Browse your test collection
 - `TeaPie: Refresh Explorer` - Refresh the TeaPie Explorer view
 - `TeaPie: Open HTML Preview (F6)` - Open the current HTTP file in HTML preview mode
-- `TeaPie: Open Documentation` - Open TeaPie documentation website in your default browser
+- `TeaPie: Open Documentation` - Open [TeaPie documentation](https://www.teapie.fun) in your default browser
 
 ### Keyboard Shortcuts
 

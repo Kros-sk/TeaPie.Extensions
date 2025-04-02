@@ -37,25 +37,7 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "workspaceContains:**/*.http",
-    "onView:teapieExplorer",
-    "onCommand:teapie-extensions.runDirectory",
-    "onCommand:teapie-extensions.runFile",
-    "onCommand:teapie-extensions.cycleTestFiles",
-    "onCommand:teapie-extensions.nextTestCase",
-    "onCommand:teapie-extensions.nextTestCaseWithSubdirs",
-    "onCommand:teapie-extensions.generateTestCase",
-    "onCommand:teapie-extensions.refreshExplorer",
-    "onCommand:teapie-extensions.openFile",
-    "onCommand:teapie-extensions.shiftSubsequentTests",
-    "onCommand:teapie-extensions.previewHttpFile",
-    "onCommand:teapie-extensions.runHttpTest",
-    "onCommand:teapie.reload",
-    "onCommand:teapie.run",
-    "onCommand:teapie.runInTerminal",
-    "onCommand:teapie.reloadDocs",
-    "onCommand:teapie.setupCsxSupport",
-    "onCommand:teapie.shiftTestNames"
+    "workspaceContains:**/*.http"
   ],
   "main": "./out/extension.js",
   "contributes": {
