@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { TeaPieTreeItem, TeaPieTreeViewProvider } from './TeaPieTreeViewProvider';
+import { TestResultItem, TestResultsProvider } from './TestResultsProvider';
 
 import { HttpCompletionProvider } from './HttpCompletionProvider';
 import { HttpHoverProvider } from './HttpHoverProvider';
@@ -10,6 +11,7 @@ import { HttpPreviewProvider } from './HttpPreviewProvider';
 import { TeaPieInitializer } from './utils/TeaPieInitializer';
 import { TeaPieLanguageServer } from './TeaPieLanguageServer';
 import { TestRenameProvider } from './TestRenameProvider';
+import { TestResultsWebviewProvider } from './TestResultsWebviewProvider';
 import { VariablesProvider } from './VariablesProvider';
 import { VisualTestEditorProvider } from './VisualTestEditorProvider';
 import { exec } from 'child_process';
@@ -41,6 +43,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Initialize TestRenameProvider
     const testRenameProvider = new TestRenameProvider(context);
+
+    // Initialize Test Results View
+    const testResultsProvider = new TestResultsProvider(context);
+    const testResultsTreeView = vscode.window.createTreeView('teapie-extensions.testResults', {
+        treeDataProvider: testResultsProvider
+    });
+
+    // Initialize Test Results Webview
+    const testResultsWebviewProvider = new TestResultsWebviewProvider(context.extensionUri, context);
 
     // Load variables for HTTP files
     const loadVariablesForFile = async (document: vscode.TextDocument, forceReload: boolean = false) => {
@@ -589,8 +600,64 @@ export async function activate(context: vscode.ExtensionContext) {
         previewHttpFileDisposable,
         visualEditorDisposable,
         navigateToFolderDisposable,
-        runHttpTestDisposable
+        runHttpTestDisposable,
+        vscode.commands.registerCommand('teapie-extensions.showTestDetails', (item: TestResultItem) => {
+            testResultsWebviewProvider.showTestDetails(item);
+        }),
+        vscode.commands.registerCommand('teapie-extensions.showSummary', () => {
+            const testResults = testResultsProvider.getTestResults();
+            if (testResults) {
+                testResultsWebviewProvider.showSummary(testResults);
+            }
+        }),
+        vscode.commands.registerCommand('teapie-extensions.openHttpFile', async (item: TestResultItem) => {
+            if (item.testCase) {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (workspaceFolder) {
+                    // Try different possible paths for the HTTP file
+                    const possiblePaths = [
+                        path.join(workspaceFolder.uri.fsPath, 'http', `${item.testCase.name}.http`),
+                        path.join(workspaceFolder.uri.fsPath, 'http', `${item.testCase.name}-req.http`),
+                        path.join(workspaceFolder.uri.fsPath, `${item.testCase.name}.http`),
+                        path.join(workspaceFolder.uri.fsPath, `${item.testCase.name}-req.http`)
+                    ];
+
+                    for (const httpFilePath of possiblePaths) {
+                        if (fs.existsSync(httpFilePath)) {
+                            const doc = await vscode.workspace.openTextDocument(httpFilePath);
+                            await vscode.window.showTextDocument(doc);
+                            return;
+                        }
+                    }
+                    vscode.window.showErrorMessage(`HTTP file not found for test case: ${item.testCase.name}`);
+                }
+            }
+        }),
+        vscode.commands.registerCommand('teapie-extensions.openTestFile', async (item: TestResultItem) => {
+            if (item.testSuite) {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (workspaceFolder) {
+                    // Try different possible paths for the test file
+                    const possiblePaths = [
+                        path.join(workspaceFolder.uri.fsPath, 'tests', `${item.testSuite.name}-test.csx`),
+                        path.join(workspaceFolder.uri.fsPath, `${item.testSuite.name}-test.csx`)
+                    ];
+
+                    for (const testFilePath of possiblePaths) {
+                        if (fs.existsSync(testFilePath)) {
+                            const doc = await vscode.workspace.openTextDocument(testFilePath);
+                            await vscode.window.showTextDocument(doc);
+                            return;
+                        }
+                    }
+                    vscode.window.showErrorMessage(`Test file not found for suite: ${item.testSuite.name}`);
+                }
+            }
+        })
     );
+
+    // Load test results when extension activates
+    await testResultsProvider.loadTestResults();
 }
 
 function findHttpFile(filePath: string): string | null {

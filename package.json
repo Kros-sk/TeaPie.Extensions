@@ -54,7 +54,11 @@
       "teapie-explorer": [
         {
           "id": "teapieExplorer",
-          "name": "Test Cases"
+          "name": "TeaPie Explorer"
+        },
+        {
+          "id": "teapie-extensions.testResults",
+          "name": "Test Results"
         }
       ]
     },
@@ -142,6 +146,28 @@
         "command": "teapie-extensions.openDocs",
         "title": "Open TeaPie Documentation",
         "category": "TeaPie"
+      },
+      {
+        "command": "teapie-extensions.showTestDetails",
+        "title": "Show Test Details",
+        "category": "TeaPie"
+      },
+      {
+        "command": "teapie-extensions.showSummary",
+        "title": "Show Test Run Summary",
+        "category": "TeaPie"
+      },
+      {
+        "command": "teapie-extensions.openHttpFile",
+        "title": "Open HTTP File",
+        "category": "TeaPie",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "teapie-extensions.openTestFile",
+        "title": "Open Test File",
+        "category": "TeaPie",
+        "icon": "$(file-text)"
       }
     ],
     "menus": {
@@ -171,6 +197,21 @@
         {
           "command": "teapie-extensions.shiftSubsequentTests",
           "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == testCase || viewItem == directory)"
+        },
+        {
+          "command": "teapie-extensions.openHttpFile",
+          "when": "view == teapie-extensions.testResults && viewItem == testsuite",
+          "group": "inline"
+        },
+        {
+          "command": "teapie-extensions.openTestFile",
+          "when": "view == teapie-extensions.testResults && viewItem == testsuite",
+          "group": "inline"
+        },
+        {
+          "command": "teapie-extensions.openTestFile",
+          "when": "view == teapie-extensions.testResults && viewItem == testcase",
+          "group": "inline"
         }
       ],
       "explorer/context": [

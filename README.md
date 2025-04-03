@@ -58,7 +58,7 @@ Right-click on files or folders in the TeaPie Explorer to access additional acti
 ### 0.0.17
 
 - ✨ Added new command to open TeaPie documentation
-  - Quick access to TeaPie documentation website (www.teapie.fun)
+  - Quick access to [TeaPie documentation website](https://www.teapie.fun)
   - Available through Command Palette under TeaPie category
 
 ### 0.0.16
@@ -80,4 +80,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## ⚠️ Disclaimer
 
-This extension was generated using artificial intelligence. While we strive for accuracy, there may be bugs or issues that need to be addressed. Please report any problems you encounter through GitHub issues.
+This extension was generated using artificial intelligence. While we strive for accuracy, there may be bugs or issues that need to be addressed. Please report any problems you encounter through GitHub issues
+
+todo:
+
+.gitignore - fix
+farebne ikonky to result view
+spustanie testov s parametrom .teapie/ ...
