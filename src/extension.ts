@@ -12,6 +12,7 @@ import { TeaPieInitializer } from './utils/TeaPieInitializer';
 import { TeaPieLanguageServer } from './TeaPieLanguageServer';
 import { TestRenameProvider } from './TestRenameProvider';
 import { TestResultsWebviewProvider } from './TestResultsWebviewProvider';
+import { VariablesEditorProvider } from './VariablesEditorProvider';
 import { VariablesProvider } from './VariablesProvider';
 import { VisualTestEditorProvider } from './VisualTestEditorProvider';
 import { exec } from 'child_process';
@@ -596,6 +597,39 @@ export async function activate(context: vscode.ExtensionContext) {
             await runTeaPieCommand('test', filePath);
         }
     });
+
+    // Register command to open variables editor
+    context.subscriptions.push(
+        vscode.commands.registerCommand('teapie-extensions.openVariablesEditor', async () => {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders || workspaceFolders.length === 0) {
+                vscode.window.showErrorMessage('No workspace folder is open');
+                return;
+            }
+
+            const rootPath = workspaceFolders[0].uri.fsPath;
+            const teapiePath = path.join(rootPath, '.teapie', 'cache', 'variables', 'variables.json');
+
+            // Create directories if they don't exist
+            const dirPath = path.dirname(teapiePath);
+            if (!fs.existsSync(dirPath)) {
+                fs.mkdirSync(dirPath, { recursive: true });
+            }
+
+            // Create file if it doesn't exist
+            if (!fs.existsSync(teapiePath)) {
+                fs.writeFileSync(teapiePath, JSON.stringify({
+                    GlobalVariables: {},
+                    EnvironmentVariables: {},
+                    CollectionVariables: {},
+                    TestCaseVariables: {}
+                }, null, 2));
+            }
+
+            const uri = vscode.Uri.file(teapiePath);
+            await VariablesEditorProvider.show(uri);
+        })
+    );
 
     // Register commands
     context.subscriptions.push(

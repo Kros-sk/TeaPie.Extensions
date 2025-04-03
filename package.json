@@ -168,12 +168,23 @@
         "title": "Open Test File",
         "category": "TeaPie",
         "icon": "$(file-text)"
+      },
+      {
+        "command": "teapie-extensions.openVariablesEditor",
+        "title": "TeaPie: Open Variables Editor",
+        "category": "TeaPie",
+        "icon": "$(symbol-variable)"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "teapie-extensions.refreshExplorer",
+          "when": "view == teapieExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "teapie-extensions.openVariablesEditor",
           "when": "view == teapieExplorer",
           "group": "navigation"
         }
@@ -245,6 +256,11 @@
           "title": "TeaPie: Shift Subsequent Tests",
           "group": "teapie@1",
           "when": "resourceFilename =~ /.*-req\\.http$/ || resourceFilename =~ /.*-test\\.csx$/ || explorerResourceIsFolder"
+        },
+        {
+          "command": "teapie-extensions.openVariablesEditor",
+          "group": "teapie@3",
+          "when": "explorerResourceIsFolder"
         }
       ],
       "editor/context": [
