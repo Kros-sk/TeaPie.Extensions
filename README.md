@@ -17,6 +17,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - 🎨 Syntax highlighting for .http files (directives, methods, headers, etc.)
 - 💡 IntelliSense support for TeaPie directives
 - 📊 Test results view with detailed statistics and execution times
+- 🔧 Visual Variables Editor for managing TeaPie variables
 
 ## Usage
 
@@ -33,6 +34,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `TeaPie: Open HTML Preview (F6)` - Open the current HTTP file in HTML preview mode
 - `TeaPie: Open Documentation` - Open [TeaPie documentation](https://www.teapie.fun) in your default browser
 - `TeaPie: Focus on Test Results` - Focus on the Test Results view
+- `TeaPie: Open Variables Editor` - Open the visual editor for managing TeaPie variables
 
 ### Keyboard Shortcuts
 
@@ -50,12 +52,21 @@ Right-click on files or folders in the TeaPie Explorer to access additional acti
 - Generate new test cases
 - Preview HTTP files
 - Shift subsequent tests
+- Open Variables Editor
 
 ## Requirements
 
 - TeaPie installed on your system
 
 ## Release Notes
+
+### 0.0.21
+
+- ✨ Added Variables Editor for managing TeaPie variables
+  - Visual interface for editing variables in all scopes (Global, Environment, Collection, Test Case)
+  - Accessible from TeaPie Explorer and context menu
+  - Manual save functionality to control when changes are applied
+  - Automatic file watching to detect external changes
 
 ### 0.0.17
 
