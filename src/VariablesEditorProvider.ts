@@ -8,6 +8,12 @@ export class VariablesEditorProvider {
     private static currentPanel: vscode.WebviewPanel | undefined;
     private static currentFile: vscode.Uri | undefined;
     private static fileWatcher: vscode.FileSystemWatcher | undefined;
+    private static currentVariables: Variables = {
+        GlobalVariables: {},
+        EnvironmentVariables: {},
+        CollectionVariables: {},
+        TestCaseVariables: {}
+    };
 
     public static async show(uri: vscode.Uri) {
         const column = vscode.window.activeTextEditor
@@ -41,8 +47,11 @@ export class VariablesEditorProvider {
         VariablesEditorProvider.currentPanel.webview.onDidReceiveMessage(
             async message => {
                 switch (message.command) {
+                    case 'updateVariables':
+                        VariablesEditorProvider.currentVariables = message.variables;
+                        return;
                     case 'saveVariables':
-                        await VariablesEditorProvider.saveVariables(message.variables);
+                        await VariablesEditorProvider.saveVariables(VariablesEditorProvider.currentVariables);
                         return;
                 }
             },
@@ -97,6 +106,7 @@ export class VariablesEditorProvider {
     private static async getWebviewContent(uri: vscode.Uri): Promise<string> {
         const content = await fs.promises.readFile(uri.fsPath, 'utf8');
         const variables = JSON.parse(content);
+        VariablesEditorProvider.currentVariables = variables;
 
         return `
             <!DOCTYPE html>
@@ -192,6 +202,21 @@ export class VariablesEditorProvider {
                         border-bottom: 1px solid var(--vscode-widget-border);
                         padding-bottom: 0.3em;
                     }
+                    .save-container {
+                        position: sticky;
+                        bottom: 0;
+                        background-color: var(--vscode-editor-background);
+                        padding: 20px 0;
+                        border-top: 1px solid var(--vscode-panel-border);
+                        display: flex;
+                        justify-content: center;
+                        margin-top: 20px;
+                    }
+                    .save-btn {
+                        background-color: var(--vscode-gitDecoration-addedResourceForeground);
+                        font-size: 1.1em;
+                        padding: 10px 30px;
+                    }
                 </style>
                 <script>
                     const vscode = acquireVsCodeApi();
@@ -242,8 +267,14 @@ export class VariablesEditorProvider {
                         });
 
                         vscode.postMessage({
-                            command: 'saveVariables',
+                            command: 'updateVariables',
                             variables: variables
+                        });
+                    }
+
+                    function saveVariables() {
+                        vscode.postMessage({
+                            command: 'saveVariables'
                         });
                     }
 
@@ -333,6 +364,10 @@ export class VariablesEditorProvider {
                             `).join('')}
                         </div>
                     </div>
+                </div>
+
+                <div class="save-container">
+                    <button class="save-btn" onclick="saveVariables()">Save Variables</button>
                 </div>
             </body>
             </html>
