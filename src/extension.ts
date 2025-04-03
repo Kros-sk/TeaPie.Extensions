@@ -767,7 +767,13 @@ async function runTeaPieCommand(command: string, target: string): Promise<void> 
     const terminal = vscode.window.createTerminal('TeaPie');
     terminal.show();
 
-    const commandStr = `teapie ${command} "${target}"`;
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        throw new Error('No workspace folder is open');
+    }
+
+    const reportPath = path.join(workspaceFolder.uri.fsPath, '.teapie', 'reports', 'last-run-report.xml');
+    const commandStr = `teapie ${command} "${target}" -r "${reportPath}"`;
     terminal.sendText(commandStr);
 }
 
