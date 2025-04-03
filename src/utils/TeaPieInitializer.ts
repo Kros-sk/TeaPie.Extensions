@@ -28,15 +28,37 @@ export class TeaPieInitializer {
             this.outputChannel.appendLine('Created .teapie folder');
         }
 
+        // Create required subdirectories
+        const subdirs = ['reports', 'cache', 'temp'];
+        for (const subdir of subdirs) {
+            const subdirPath = path.join(teapiePath, subdir);
+            if (!fs.existsSync(subdirPath)) {
+                fs.mkdirSync(subdirPath, { recursive: true });
+                this.outputChannel.appendLine(`Created .teapie/${subdir} folder`);
+            }
+        }
+
         const gitignorePath = path.join(rootPath, '.gitignore');
         if (fs.existsSync(gitignorePath)) {
             const gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
-            const teapieEntry = '.teapie';
+            const teapieEntries = [
+                '.teapie/reports/',
+                '.teapie/cache/',
+                '.teapie/temp/'
+            ];
 
-            if (!gitignoreContent.includes(teapieEntry)) {
-                const newContent = gitignoreContent + `\n${teapieEntry}`;
+            let needsUpdate = false;
+            for (const entry of teapieEntries) {
+                if (!gitignoreContent.includes(entry)) {
+                    needsUpdate = true;
+                    break;
+                }
+            }
+
+            if (needsUpdate) {
+                const newContent = gitignoreContent + '\n' + teapieEntries.join('\n');
                 fs.writeFileSync(gitignorePath, newContent);
-                this.outputChannel.appendLine('Updated .gitignore with TeaPie entry');
+                this.outputChannel.appendLine('Updated .gitignore with TeaPie entries');
             }
         }
     }

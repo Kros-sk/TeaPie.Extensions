@@ -81,8 +81,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## ⚠️ Disclaimer
 
 This extension was generated using artificial intelligence. While we strive for accuracy, there may be bugs or issues that need to be addressed. Please report any problems you encounter through GitHub issues
-
-todo:
-
-.gitignore - fix
-spustanie testov s parametrom .teapie/ ...
