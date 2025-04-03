@@ -16,6 +16,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - 🔍 Easy navigation between test cases
 - 🎨 Syntax highlighting for .http files (directives, methods, headers, etc.)
 - 💡 IntelliSense support for TeaPie directives
+- 📊 Test results view with detailed statistics and execution times
 
 ## Usage
 
@@ -31,6 +32,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `TeaPie: Refresh Explorer` - Refresh the TeaPie Explorer view
 - `TeaPie: Open HTML Preview (F6)` - Open the current HTTP file in HTML preview mode
 - `TeaPie: Open Documentation` - Open [TeaPie documentation](https://www.teapie.fun) in your default browser
+- `TeaPie: Focus on Test Results` - Focus on the Test Results view
 
 ### Keyboard Shortcuts
 
