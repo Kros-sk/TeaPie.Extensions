@@ -48,9 +48,20 @@ export class VariablesEditorProvider {
             async message => {
                 switch (message.command) {
                     case 'updateVariables':
-                        VariablesEditorProvider.currentVariables = message.variables;
+                        // Ensure we're getting a complete variables object
+                        if (message.variables && 
+                            typeof message.variables === 'object' && 
+                            'GlobalVariables' in message.variables &&
+                            'EnvironmentVariables' in message.variables &&
+                            'CollectionVariables' in message.variables &&
+                            'TestCaseVariables' in message.variables) {
+                            
+                            VariablesEditorProvider.currentVariables = message.variables;
+                            console.log('Variables updated:', JSON.stringify(VariablesEditorProvider.currentVariables));
+                        }
                         return;
                     case 'saveVariables':
+                        console.log('Saving variables:', JSON.stringify(VariablesEditorProvider.currentVariables));
                         await VariablesEditorProvider.saveVariables(VariablesEditorProvider.currentVariables);
                         return;
                 }
@@ -91,11 +102,20 @@ export class VariablesEditorProvider {
 
     private static async saveVariables(variables: Variables): Promise<void> {
         if (!VariablesEditorProvider.currentFile) {
+            vscode.window.showErrorMessage('No file is currently open for saving variables');
             return;
         }
 
         try {
-            const content = JSON.stringify(variables, null, 2);
+            // Ensure we have a valid variables object
+            const variablesToSave = {
+                GlobalVariables: variables.GlobalVariables || {},
+                EnvironmentVariables: variables.EnvironmentVariables || {},
+                CollectionVariables: variables.CollectionVariables || {},
+                TestCaseVariables: variables.TestCaseVariables || {}
+            };
+            
+            const content = JSON.stringify(variablesToSave, null, 2);
             await fs.promises.writeFile(VariablesEditorProvider.currentFile.fsPath, content, 'utf8');
             vscode.window.showInformationMessage('Variables saved successfully');
         } catch (error) {
@@ -104,9 +124,21 @@ export class VariablesEditorProvider {
     }
 
     private static async getWebviewContent(uri: vscode.Uri): Promise<string> {
-        const content = await fs.promises.readFile(uri.fsPath, 'utf8');
-        const variables = JSON.parse(content);
-        VariablesEditorProvider.currentVariables = variables;
+        let variables: Variables;
+        try {
+            const content = await fs.promises.readFile(uri.fsPath, 'utf8');
+            variables = JSON.parse(content);
+            VariablesEditorProvider.currentVariables = variables;
+        } catch (error) {
+            // If file doesn't exist or can't be parsed, use empty variables
+            variables = {
+                GlobalVariables: {},
+                EnvironmentVariables: {},
+                CollectionVariables: {},
+                TestCaseVariables: {}
+            };
+            VariablesEditorProvider.currentVariables = variables;
+        }
 
         return `
             <!DOCTYPE html>
@@ -221,6 +253,9 @@ export class VariablesEditorProvider {
                 <script>
                     const vscode = acquireVsCodeApi();
                     
+                    // Store the current state of variables
+                    let currentVariables = ${JSON.stringify(variables)};
+                    
                     function toggleSection(sectionId) {
                         const content = document.getElementById(sectionId + '-content');
                         const header = document.getElementById(sectionId + '-header');
@@ -248,6 +283,7 @@ export class VariablesEditorProvider {
                     }
 
                     function updateVariables() {
+                        // Create a new variables object with all sections
                         const variables = {
                             GlobalVariables: {},
                             EnvironmentVariables: {},
@@ -255,17 +291,37 @@ export class VariablesEditorProvider {
                             TestCaseVariables: {}
                         };
 
-                        ['global', 'environment', 'collection', 'testcase'].forEach(section => {
-                            const container = document.getElementById(section + '-variables');
-                            container.querySelectorAll('.variable-row').forEach(row => {
-                                const name = row.querySelector('.variable-name').value;
-                                const value = row.querySelector('.variable-value').value;
-                                if (name && value) {
-                                    variables[section.charAt(0).toUpperCase() + section.slice(1) + 'Variables'][name] = value;
-                                }
-                            });
+                        // Process each section
+                        const sections = [
+                            { id: 'global', key: 'GlobalVariables' },
+                            { id: 'environment', key: 'EnvironmentVariables' },
+                            { id: 'collection', key: 'CollectionVariables' },
+                            { id: 'testcase', key: 'TestCaseVariables' }
+                        ];
+
+                        sections.forEach(section => {
+                            const container = document.getElementById(section.id + '-variables');
+                            if (container) {
+                                container.querySelectorAll('.variable-row').forEach(row => {
+                                    const nameInput = row.querySelector('.variable-name');
+                                    const valueInput = row.querySelector('.variable-value');
+                                    
+                                    if (nameInput && valueInput) {
+                                        const name = nameInput.value.trim();
+                                        const value = valueInput.value;
+                                        
+                                        if (name) {
+                                            variables[section.key][name] = value;
+                                        }
+                                    }
+                                });
+                            }
                         });
 
+                        // Update our current variables
+                        currentVariables = variables;
+
+                        // Send to extension
                         vscode.postMessage({
                             command: 'updateVariables',
                             variables: variables
@@ -273,6 +329,10 @@ export class VariablesEditorProvider {
                     }
 
                     function saveVariables() {
+                        // Make sure we have the latest variables before saving
+                        updateVariables();
+                        
+                        // Send save command to extension
                         vscode.postMessage({
                             command: 'saveVariables'
                         });
