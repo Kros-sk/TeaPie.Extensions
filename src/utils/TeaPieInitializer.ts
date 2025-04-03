@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 
 export class TeaPieInitializer {
     private outputChannel: vscode.OutputChannel;
+    private initialized: boolean = false;
 
     constructor(outputChannel: vscode.OutputChannel) {
         this.outputChannel = outputChannel;
@@ -63,6 +64,7 @@ export class TeaPieInitializer {
         }
     }
 
+    // This method is no longer called at extension activation
     async initialize(): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
@@ -74,5 +76,38 @@ export class TeaPieInitializer {
                 this.outputChannel.appendLine('No git root found in workspace');
             }
         }
+    }
+
+    /**
+     * Ensures TeaPie is initialized if needed
+     * Returns true if initialization was performed, false if already initialized
+     */
+    async ensureInitialized(): Promise<boolean> {
+        if (this.initialized) {
+            return false;
+        }
+        
+        await this.initialize();
+        this.initialized = true;
+        return true;
+    }
+
+    /**
+     * Checks if a valid TeaPie directory exists in the given path hierarchy
+     */
+    async hasTeaPieDirectory(startPath: string): Promise<boolean> {
+        let currentPath = startPath;
+        
+        while (currentPath !== path.dirname(currentPath)) {
+            const potentialTeapiePath = path.join(currentPath, '.teapie');
+            
+            if (fs.existsSync(potentialTeapiePath)) {
+                return true;
+            }
+            
+            currentPath = path.dirname(currentPath);
+        }
+        
+        return false;
     }
 } 

@@ -157,19 +157,104 @@ export class TestResultsProvider implements vscode.TreeDataProvider<TestResultIt
         try {
             const xmlContent = fs.readFileSync(reportPath, 'utf8');
             this.outputChannel.appendLine('XML content loaded, parsing...');
+            this.outputChannel.appendLine('XML content:');
+            this.outputChannel.appendLine(xmlContent);
 
             const parser = new xml2js.Parser({
                 explicitArray: false,
-                mergeAttrs: true
+                mergeAttrs: false,
+                attrkey: '$'
             });
             
             const result = await parser.parseStringPromise(xmlContent);
             this.outputChannel.appendLine('XML parsed successfully');
-            this.outputChannel.appendLine(`Parsed result structure: ${JSON.stringify(result, null, 2)}`);
+            this.outputChannel.appendLine(`Raw parsed result: ${JSON.stringify(result, null, 2)}`);
 
-            this.testResults = result.testsuites;
-            this.outputChannel.appendLine(`Test results structure: ${JSON.stringify(this.testResults, null, 2)}`);
+            // Ensure we have a valid testsuites object
+            if (result && result.testsuites) {
+                const testsuites = result.testsuites;
+                this.outputChannel.appendLine(`Testsuites object: ${JSON.stringify(testsuites, null, 2)}`);
+
+                this.testResults = {
+                    name: testsuites.$.name,
+                    tests: testsuites.$.tests,
+                    skipped: testsuites.$.skipped,
+                    failures: testsuites.$.failures,
+                    time: testsuites.$.time,
+                    timestamp: testsuites.$.timestamp,
+                    testsuite: Array.isArray(testsuites.testsuite) 
+                        ? testsuites.testsuite.map((suite: any) => ({
+                            name: suite.$.name,
+                            tests: suite.$.tests,
+                            skipped: suite.$.skipped || '0',
+                            failures: suite.$.failures || '0',
+                            time: suite.$.time,
+                            testcase: Array.isArray(suite.testcase) 
+                                ? suite.testcase.map((tc: any) => ({
+                                    name: tc.$.name,
+                                    time: tc.$.time,
+                                    classname: tc.$.classname,
+                                    failure: tc.failure ? {
+                                        _: tc.failure._,
+                                        message: tc.failure.$.message,
+                                        type: tc.failure.$.type
+                                    } : undefined,
+                                    skipped: tc.skipped !== undefined ? '' : undefined
+                                }))
+                                : suite.testcase 
+                                    ? [{
+                                        name: suite.testcase.$.name,
+                                        time: suite.testcase.$.time,
+                                        classname: suite.testcase.$.classname,
+                                        failure: suite.testcase.failure ? {
+                                            _: suite.testcase.failure._,
+                                            message: suite.testcase.failure.$.message,
+                                            type: suite.testcase.failure.$.type
+                                        } : undefined,
+                                        skipped: suite.testcase.skipped !== undefined ? '' : undefined
+                                    }]
+                                    : []
+                        }))
+                        : testsuites.testsuite
+                            ? [{
+                                name: testsuites.testsuite.$.name,
+                                tests: testsuites.testsuite.$.tests,
+                                skipped: testsuites.testsuite.$.skipped || '0',
+                                failures: testsuites.testsuite.$.failures || '0',
+                                time: testsuites.testsuite.$.time,
+                                testcase: Array.isArray(testsuites.testsuite.testcase)
+                                    ? testsuites.testsuite.testcase.map((tc: any) => ({
+                                        name: tc.$.name,
+                                        time: tc.$.time,
+                                        classname: tc.$.classname,
+                                        failure: tc.failure ? {
+                                            _: tc.failure._,
+                                            message: tc.failure.$.message,
+                                            type: tc.failure.$.type
+                                        } : undefined,
+                                        skipped: tc.skipped !== undefined ? '' : undefined
+                                    }))
+                                    : testsuites.testsuite.testcase
+                                        ? [{
+                                            name: testsuites.testsuite.testcase.$.name,
+                                            time: testsuites.testsuite.testcase.$.time,
+                                            classname: testsuites.testsuite.testcase.$.classname,
+                                            failure: testsuites.testsuite.testcase.failure ? {
+                                                _: testsuites.testsuite.testcase.failure._,
+                                                message: testsuites.testsuite.testcase.failure.$.message,
+                                                type: testsuites.testsuite.testcase.failure.$.type
+                                            } : undefined,
+                                            skipped: testsuites.testsuite.testcase.skipped !== undefined ? '' : undefined
+                                        }]
+                                        : []
+                            }]
+                            : []
+                };
+            } else {
+                throw new Error('Invalid test results format');
+            }
             
+            this.outputChannel.appendLine(`Final test results structure: ${JSON.stringify(this.testResults, null, 2)}`);
             this.refresh();
         } catch (error) {
             this.outputChannel.appendLine(`Error parsing test results: ${error}`);

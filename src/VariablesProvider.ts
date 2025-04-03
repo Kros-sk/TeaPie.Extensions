@@ -70,7 +70,22 @@ export class VariablesProvider {
             this.outputChannel.appendLine(`[TeaPie] Looking for variables at: ${variablesPath}`);
             
             if (!fs.existsSync(variablesPath)) {
-                this.outputChannel.appendLine('[TeaPie] No variables.json file found');
+                // Create the cache/variables directory structure if it doesn't exist
+                const variablesDir = path.dirname(variablesPath);
+                if (!fs.existsSync(variablesDir)) {
+                    fs.mkdirSync(variablesDir, { recursive: true });
+                    this.outputChannel.appendLine(`[TeaPie] Created variables directory: ${variablesDir}`);
+                }
+                
+                // Create an empty variables file
+                fs.writeFileSync(variablesPath, '{}', 'utf8');
+                this.outputChannel.appendLine('[TeaPie] Created empty variables.json file');
+                
+                this.variables = {};
+                this.lastLoadedPath = startPath;
+                this.lastLoadTime = now;
+                this.lastModificationTime = fs.statSync(variablesPath).mtimeMs;
+                
                 return {};
             }
 

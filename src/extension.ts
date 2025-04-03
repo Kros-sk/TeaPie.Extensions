@@ -29,10 +29,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     outputChannel.appendLine('Activating TeaPie extension...');
 
-    // Initialize TeaPie folder structure
+    // Create TeaPie initializer but don't run initialization yet
     const initializer = new TeaPieInitializer(outputChannel);
-    await initializer.initialize();
-
+    
     // Initialize the TeaPie language server
     const server = TeaPieLanguageServer.getInstance(context);
     server.initialize().then(() => {
@@ -57,7 +56,12 @@ export async function activate(context: vscode.ExtensionContext) {
     const loadVariablesForFile = async (document: vscode.TextDocument, forceReload: boolean = false) => {
         if (document.languageId === 'http') {
             const variablesProvider = VariablesProvider.getInstance();
-            await variablesProvider.loadVariables(path.dirname(document.uri.fsPath), forceReload);
+            
+            // Check if TeaPie directory exists, only try to load variables if it does
+            const dirPath = path.dirname(document.uri.fsPath);
+            if (await initializer.hasTeaPieDirectory(dirPath)) {
+                await variablesProvider.loadVariables(dirPath, forceReload);
+            }
         }
     };
 
@@ -187,6 +191,9 @@ export async function activate(context: vscode.ExtensionContext) {
             } else {
                 throw new Error('No resourceUri in item');
             }
+            
+            // Ensure TeaPie is initialized before running tests
+            await initializer.ensureInitialized();
             await runTeaPieCommand('test', targetPath);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to run TeaPie tests: ${error}`);
@@ -226,6 +233,9 @@ export async function activate(context: vscode.ExtensionContext) {
             } else {
                 throw new Error('No HTTP file available');
             }
+            
+            // Ensure TeaPie is initialized before running tests
+            await initializer.ensureInitialized();
             await runTeaPieCommand('test', targetPath);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to run TeaPie test: ${error}`);
@@ -336,6 +346,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     let generateTestCaseDisposable = vscode.commands.registerCommand('teapie-extensions.generateTestCase', async (uri: vscode.Uri) => {
         try {
+            // Ensure TeaPie is initialized before generating test case
+            await initializer.ensureInitialized();
+            
             // Get the target directory from the URI or use the workspace root
             const targetDir = uri.fsPath || vscode.workspace.workspaceFolders?.[0].uri.fsPath;
             if (!targetDir) {
@@ -404,8 +417,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
     let exploreCollectionDisposable = vscode.commands.registerCommand('teapie-extensions.exploreCollection', async (uri: vscode.Uri) => {
         try {
+            // Ensure TeaPie is initialized before exploring collection
+            await initializer.ensureInitialized();
+            
             // Get the target directory from the URI or use the workspace root
-            const targetDir = uri.fsPath || vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+            const targetDir = uri?.fsPath || vscode.workspace.workspaceFolders?.[0].uri.fsPath;
             if (!targetDir) {
                 vscode.window.showErrorMessage('No target directory selected');
                 return;
@@ -772,6 +788,7 @@ async function runTeaPieCommand(command: string, target: string): Promise<void> 
         throw new Error('No workspace folder is open');
     }
 
+    // TeaPie directory must be initialized at this point
     const reportPath = path.join(workspaceFolder.uri.fsPath, '.teapie', 'reports', 'last-run-report.xml');
     const commandStr = `teapie ${command} "${target}" -r "${reportPath}"`;
     terminal.sendText(commandStr);
