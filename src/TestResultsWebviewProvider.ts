@@ -222,49 +222,129 @@ export class TestResultsWebviewProvider {
         <head>
             <style>
                 body {
-                    padding: 20px;
+                    padding: 30px;
                     color: var(--vscode-editor-foreground);
                     font-family: var(--vscode-font-family);
+                    line-height: 1.6;
+                    max-width: 1200px;
+                    margin: 0 auto;
+                }
+                .header {
+                    margin-bottom: 40px;
+                }
+                h2 {
+                    font-size: 24px;
+                    margin: 0 0 20px 0;
+                }
+                .status-container {
+                    display: flex;
+                    align-items: center;
+                    gap: 15px;
+                    margin-bottom: 30px;
                 }
                 .status {
-                    padding: 5px 10px;
-                    border-radius: 3px;
-                    display: inline-block;
-                    margin-bottom: 10px;
+                    padding: 8px 16px;
+                    border-radius: 20px;
+                    font-weight: bold;
+                    font-size: 14px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
                 }
-                .passed { background-color: var(--vscode-testing-iconPassed); }
-                .failed { background-color: var(--vscode-testing-iconFailed); }
-                .skipped { background-color: var(--vscode-testing-iconSkipped); }
-                .details {
-                    margin-top: 20px;
-                    padding: 15px;
-                    background-color: var(--vscode-editor-background);
+                .passed { 
+                    background-color: var(--vscode-testing-iconPassed);
+                    color: var(--vscode-editor-background);
+                }
+                .failed { 
+                    background-color: var(--vscode-testing-iconFailed);
+                    color: white;
+                }
+                .skipped { 
+                    background-color: var(--vscode-testing-iconSkipped);
+                    color: white;
+                }
+                .duration-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    padding: 4px 8px;
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    border-radius: 4px;
+                    font-size: 12px;
+                }
+                .info-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 20px;
+                    margin-bottom: 40px;
+                    background: var(--vscode-editor-background);
+                    padding: 20px;
+                    border-radius: 8px;
                     border: 1px solid var(--vscode-panel-border);
-                    border-radius: 5px;
+                }
+                .info-item {
+                    padding: 15px;
+                }
+                .info-label {
+                    font-size: 12px;
+                    text-transform: uppercase;
+                    color: var(--vscode-descriptionForeground);
+                    margin-bottom: 5px;
+                    letter-spacing: 0.5px;
+                }
+                .info-value {
+                    font-size: 16px;
+                    font-weight: 500;
+                }
+                .details {
+                    background: var(--vscode-editor-background);
+                    padding: 20px;
+                    border-radius: 8px;
+                    border: 1px solid var(--vscode-panel-border);
+                }
+                .details h3 {
+                    margin: 0 0 15px 0;
+                    font-size: 18px;
+                    color: var(--vscode-testing-iconFailed);
                 }
                 .failure-message {
                     color: var(--vscode-testing-message-error-decorationForeground);
                     white-space: pre-wrap;
                     font-family: var(--vscode-editor-font-family);
-                }
-                .metadata {
-                    margin-top: 10px;
-                    color: var(--vscode-descriptionForeground);
+                    font-size: 14px;
+                    background: var(--vscode-editor-background);
+                    padding: 15px;
+                    border-radius: 4px;
+                    border-left: 4px solid var(--vscode-testing-iconFailed);
                 }
             </style>
         </head>
         <body>
-            <h2>${testCase.name}</h2>
-            <div class="status ${statusClass}">${status}</div>
-            <div class="metadata">
-                <div>Class: ${testCase.classname}</div>
-                <div>Duration: ${Number(testCase.time).toFixed(2)}s</div>
+            <div class="header">
+                <h2>${testCase.name}</h2>
+                <div class="status-container">
+                    <div class="status ${statusClass}">${status}</div>
+                    <div class="duration-badge">
+                        Duration: ${Number(testCase.time).toFixed(3)}s
+                    </div>
+                </div>
             </div>
+            
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Class</div>
+                    <div class="info-value">${testCase.classname}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Test Name</div>
+                    <div class="info-value">${testCase.name}</div>
+                </div>
+            </div>
+
             ${testCase.failure ? `
                 <div class="details">
                     <h3>Failure Details</h3>
-                    <div class="failure-message">${testCase.failure.message}</div>
-                    <div class="failure-message">${testCase.failure._}</div>
+                    <div class="failure-message">${testCase.failure.message || ''}
+${testCase.failure._ || ''}</div>
                 </div>
             ` : ''}
         </body>
@@ -283,48 +363,127 @@ export class TestResultsWebviewProvider {
         <head>
             <style>
                 body {
-                    padding: 20px;
+                    padding: 30px;
                     color: var(--vscode-editor-foreground);
                     font-family: var(--vscode-font-family);
+                    line-height: 1.6;
+                    max-width: 1200px;
+                    margin: 0 auto;
+                }
+                .header {
+                    margin-bottom: 40px;
+                }
+                h2 {
+                    font-size: 24px;
+                    margin: 0 0 20px 0;
+                }
+                .status-container {
+                    display: flex;
+                    align-items: center;
+                    gap: 15px;
+                    margin-bottom: 30px;
+                }
+                .duration-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    padding: 4px 8px;
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    border-radius: 4px;
+                    font-size: 12px;
                 }
                 .summary {
                     display: grid;
                     grid-template-columns: repeat(4, 1fr);
-                    gap: 15px;
-                    margin-bottom: 30px;
+                    gap: 20px;
+                    margin: 40px 0;
                 }
                 .stat-box {
-                    padding: 15px;
-                    border-radius: 5px;
+                    padding: 20px;
+                    border-radius: 8px;
                     text-align: center;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    min-height: 100px;
                 }
-                .total { background-color: var(--vscode-editor-inactiveSelectionBackground); }
-                .passed { background-color: var(--vscode-testing-iconPassed); }
-                .failed { background-color: var(--vscode-testing-iconFailed); }
-                .skipped { background-color: var(--vscode-testing-iconSkipped); }
+                .stat-box h3 {
+                    margin: 0 0 10px 0;
+                    font-size: 16px;
+                }
+                .stat-box div {
+                    font-size: 24px;
+                    font-weight: bold;
+                }
+                .total { 
+                    background-color: var(--vscode-editor-inactiveSelectionBackground);
+                    color: var(--vscode-editor-foreground);
+                }
+                .passed { 
+                    background-color: var(--vscode-testing-iconPassed);
+                    color: var(--vscode-editor-background);
+                }
+                .failed { 
+                    background-color: var(--vscode-testing-iconFailed);
+                    color: white;
+                }
+                .skipped { 
+                    background-color: var(--vscode-testing-iconSkipped);
+                    color: white;
+                }
                 .test-list {
                     margin-top: 20px;
                 }
                 .test-item {
-                    padding: 10px;
-                    margin: 5px 0;
-                    border-radius: 3px;
+                    padding: 15px;
+                    margin: 8px 0;
+                    border-radius: 4px;
                     background-color: var(--vscode-editor-background);
                     border: 1px solid var(--vscode-panel-border);
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    position: relative;
+                    padding-left: 20px;
                 }
-                .test-item.failed { border-left: 4px solid var(--vscode-testing-iconFailed); }
-                .test-item.passed { border-left: 4px solid var(--vscode-testing-iconPassed); }
-                .test-item.skipped { border-left: 4px solid var(--vscode-testing-iconSkipped); }
-                .duration {
-                    float: right;
-                    color: var(--vscode-descriptionForeground);
+                .test-item::before {
+                    content: '';
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    bottom: 0;
+                    width: 4px;
+                    border-top-left-radius: 4px;
+                    border-bottom-left-radius: 4px;
+                }
+                .test-item.failed::before { 
+                    background-color: var(--vscode-testing-iconFailed);
+                }
+                .test-item.passed::before { 
+                    background-color: var(--vscode-testing-iconPassed);
+                }
+                .test-item.skipped::before { 
+                    background-color: var(--vscode-testing-iconSkipped);
+                }
+                .test-item .test-name {
+                    font-size: 14px;
+                    color: var(--vscode-editor-foreground);
+                    flex: 1;
+                    margin-right: 10px;
+                }
+                .test-item .duration-badge {
+                    flex-shrink: 0;
                 }
             </style>
         </head>
         <body>
-            <h2>${testSuite.name}</h2>
-            <div class="metadata">
-                <div>Duration: ${duration}s</div>
+            <div class="header">
+                <h2>${testSuite.name}</h2>
+                <div class="status-container">
+                    <div class="duration-badge">
+                        Duration: ${duration}s
+                    </div>
+                </div>
             </div>
             <div class="summary">
                 <div class="stat-box total">
@@ -345,12 +504,15 @@ export class TestResultsWebviewProvider {
                 </div>
             </div>
             <div class="test-list">
-                ${Array.isArray(testSuite.testcase) ? testSuite.testcase.map(testCase => `
-                    <div class="test-item ${testCase.failure ? 'failed' : testCase.skipped ? 'skipped' : 'passed'}">
-                        ${testCase.name}
-                        <span class="duration">${Number(testCase.time).toFixed(2)}s</span>
+                ${Array.isArray(testSuite.testcase) ? testSuite.testcase.map(testCase => {
+                    const isSkipped = testCase.skipped !== undefined || testCase.time === '0.00' || testCase.time === '0';
+                    const status = testCase.failure ? 'failed' : isSkipped ? 'skipped' : 'passed';
+                    return `
+                    <div class="test-item ${status}">
+                        <div class="test-name">${testCase.name}</div>
+                        <div class="duration-badge">Duration: ${Number(testCase.time).toFixed(3)}s</div>
                     </div>
-                `).join('') : ''}
+                `}).join('') : ''}
             </div>
         </body>
         </html>`;
@@ -373,26 +535,39 @@ export class TestResultsWebviewProvider {
             <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
             <style>
                 body {
-                    padding: 20px;
+                    padding: 30px;
                     color: var(--vscode-editor-foreground);
                     font-family: var(--vscode-font-family);
                     line-height: 1.6;
+                    max-width: 1200px;
+                    margin: 0 auto;
+                }
+                .header {
+                    margin-bottom: 40px;
                 }
                 h2 {
-                    margin-bottom: 30px;
                     font-size: 24px;
+                    margin: 0 0 20px 0;
+                }
+                .status-container {
+                    display: flex;
+                    align-items: center;
+                    gap: 15px;
+                    margin-bottom: 30px;
+                }
+                .duration-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    padding: 4px 8px;
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    border-radius: 4px;
+                    font-size: 12px;
                 }
                 .metadata {
                     color: var(--vscode-descriptionForeground);
                     margin-bottom: 40px;
                     font-size: 14px;
-                }
-                .duration {
-                    font-size: 20px;
-                    font-weight: bold;
-                    color: var(--vscode-testing-iconPassed);
-                    margin-top: 15px;
-                    display: block;
                 }
                 .summary {
                     display: grid;
@@ -470,10 +645,16 @@ export class TestResultsWebviewProvider {
             </style>
         </head>
         <body>
-            <h2>Test Run Summary</h2>
+            <div class="header">
+                <h2>Test Run Summary</h2>
+                <div class="status-container">
+                    <div class="duration-badge">
+                        Duration: ${duration}s
+                    </div>
+                </div>
+            </div>
             <div class="metadata">
                 <div>Run at: ${testResults.timestamp}</div>
-                <div class="duration">Total duration: ${duration}s</div>
             </div>
             <div class="summary">
                 <div class="stat-box total">
@@ -503,7 +684,9 @@ export class TestResultsWebviewProvider {
                         <h4>${suite.name}</h4>
                         <div class="suite-metadata">
                             ${suite.tests} tests, ${suite.failures} failed, ${suite.skipped} skipped
-                            (${Number(suite.time).toFixed(2)}s)
+                            <span class="duration-badge" style="margin-left: 10px">
+                                Duration: ${Number(suite.time).toFixed(2)}s
+                            </span>
                         </div>
                     </div>
                 </div>

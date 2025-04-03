@@ -85,5 +85,4 @@ This extension was generated using artificial intelligence. While we strive for 
 todo:
 
 .gitignore - fix
-farebne ikonky to result view
 spustanie testov s parametrom .teapie/ ...
