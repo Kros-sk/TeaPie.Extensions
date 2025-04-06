@@ -18,6 +18,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - 💡 IntelliSense support for TeaPie directives
 - 📊 Test results view with detailed statistics and execution times
 - 🔧 Visual Variables Editor for managing TeaPie variables
+- 🌍 Environment Editor with environment switching support
 
 ## Usage
 
@@ -35,6 +36,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `TeaPie: Open Documentation` - Open [TeaPie documentation](https://www.teapie.fun) in your default browser
 - `TeaPie: Focus on Test Results` - Focus on the Test Results view
 - `TeaPie: Open Variables Editor (Ctrl+Alt+V)` - Open the visual editor for managing TeaPie variables
+- `TeaPie: Open Environment Editor (Ctrl+Alt+E)` - Open the visual editor for managing environments
 
 ### Keyboard Shortcuts
 
@@ -44,6 +46,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `Alt+F7` - Move to next test case
 - `Ctrl+Alt+F7` - Move to next test case (including subdirectories)
 - `Ctrl+Alt+V` - Open Variables Editor
+- `Ctrl+Alt+E` - Open Environment Editor
 
 ### Context Menu Actions
 
@@ -54,12 +57,32 @@ Right-click on files or folders in the TeaPie Explorer to access additional acti
 - Preview HTTP files
 - Shift subsequent tests
 - Open Variables Editor
+- Open Environment Editor
+
+### Environment Management
+
+The Environment Editor allows you to:
+- Create and manage multiple environments (local, development, staging, production, etc.)
+- Define shared variables that are available across all environments
+- Switch between environments using the status bar indicator
+- Edit environment-specific variables with a user-friendly interface
+- Automatically save and load environment configurations
 
 ## Requirements
 
 - TeaPie installed on your system
 
 ## Release Notes
+
+### 0.0.23
+
+- ✨ Added Environment Editor and Environment Switching
+  - Visual interface for managing multiple environments
+  - Environment selector in status bar for quick switching
+  - Support for shared variables across environments
+  - Keyboard shortcut (Ctrl+Alt+E) for quick access
+  - Automatic file watching for external changes
+  - Environment configuration stored in `.teapie/env.json`
 
 ### 0.0.22
 

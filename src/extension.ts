@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { TeaPieTreeItem, TeaPieTreeViewProvider } from './TeaPieTreeViewProvider';
 import { TestResultItem, TestResultsProvider } from './TestResultsProvider';
 
+import { EnvironmentEditorProvider } from './EnvironmentEditorProvider';
 import { HttpCompletionProvider } from './HttpCompletionProvider';
 import { HttpHoverProvider } from './HttpHoverProvider';
 import { HttpPreviewProvider } from './HttpPreviewProvider';
@@ -628,6 +629,22 @@ export async function activate(context: vscode.ExtensionContext) {
 
             const uri = vscode.Uri.file(teapiePath);
             await VariablesEditorProvider.show(uri);
+        })
+    );
+
+    // Initialize Environment Editor
+    EnvironmentEditorProvider.initialize(context);
+
+    // Register Environment Editor commands
+    context.subscriptions.push(
+        vscode.commands.registerCommand('teapie-extensions.openEnvironmentEditor', () => {
+            EnvironmentEditorProvider.show();
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('teapie-extensions.selectEnvironment', () => {
+            EnvironmentEditorProvider.selectEnvironment();
         })
     );
 
