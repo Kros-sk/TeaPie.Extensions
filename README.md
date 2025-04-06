@@ -36,7 +36,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `TeaPie: Open Documentation` - Open [TeaPie documentation](https://www.teapie.fun) in your default browser
 - `TeaPie: Focus on Test Results` - Focus on the Test Results view
 - `TeaPie: Open Variables Editor (Ctrl+Alt+V)` - Open the visual editor for managing TeaPie variables
-- `TeaPie: Open Environment Editor (Ctrl+Alt+E)` - Open the visual editor for managing environments
+- `TeaPie: Open Environment Editor (Ctrl+Alt+N)` - Open the visual editor for managing environments
 
 ### Keyboard Shortcuts
 
@@ -46,7 +46,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `Alt+F7` - Move to next test case
 - `Ctrl+Alt+F7` - Move to next test case (including subdirectories)
 - `Ctrl+Alt+V` - Open Variables Editor
-- `Ctrl+Alt+E` - Open Environment Editor
+- `Ctrl+Alt+N` - Open Environment Editor
 
 ### Context Menu Actions
 
@@ -80,7 +80,7 @@ The Environment Editor allows you to:
   - Visual interface for managing multiple environments
   - Environment selector in status bar for quick switching
   - Support for shared variables across environments
-  - Keyboard shortcut (Ctrl+Alt+E) for quick access
+  - Keyboard shortcut (Ctrl+Alt+N) for quick access
   - Automatic file watching for external changes
   - Environment configuration stored in `.teapie/env.json`
 

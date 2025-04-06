@@ -70,8 +70,16 @@ export class EnvironmentEditorProvider {
     }
 
     private static updateStatusBar(environment: string = 'local') {
-        this.statusBarItem.text = `$(symbol-enum) ENV: ${environment}`;
-        this.statusBarItem.tooltip = 'Click to change environment';
+        this.statusBarItem.text = `$(symbol-misc) TeaPie ENV: ${environment}`;
+        this.statusBarItem.tooltip = 'Click to change TeaPie environment';
+        
+        // Update editor if open
+        if (this.currentPanel) {
+            this.currentPanel.webview.postMessage({ 
+                command: 'updateActiveEnvironment', 
+                environment: environment 
+            });
+        }
     }
 
     static async selectEnvironment() {
@@ -176,6 +184,7 @@ export class EnvironmentEditorProvider {
 
     private static getWebviewContent(webview: vscode.Webview): string {
         const environments = this.currentEnvironment || { $shared: {}, local: {} };
+        const currentEnv = this.context.workspaceState.get<string>('teapie.currentEnvironment') || 'local';
 
         return `<!DOCTYPE html>
         <html lang="en">
@@ -195,6 +204,10 @@ export class EnvironmentEditorProvider {
                     padding: 15px;
                     border-radius: 5px;
                 }
+                .environment-section.active {
+                    border: 2px solid var(--vscode-focusBorder);
+                    background: var(--vscode-editor-selectionBackground);
+                }
                 .environment-header {
                     display: flex;
                     justify-content: space-between;
@@ -205,6 +218,14 @@ export class EnvironmentEditorProvider {
                     font-size: 1.2em;
                     font-weight: bold;
                     color: var(--vscode-editor-foreground);
+                }
+                .active-badge {
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    padding: 2px 8px;
+                    border-radius: 12px;
+                    font-size: 0.8em;
+                    margin-left: 8px;
                 }
                 .variable-row {
                     display: flex;
@@ -268,6 +289,18 @@ export class EnvironmentEditorProvider {
             <script>
                 const vscode = acquireVsCodeApi();
                 let environments = ${JSON.stringify(environments)};
+                let currentEnv = '${currentEnv}';
+
+                // Handle messages from extension
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    switch (message.command) {
+                        case 'updateActiveEnvironment':
+                            currentEnv = message.environment;
+                            updateUI();
+                            break;
+                    }
+                });
 
                 function updateUI() {
                     const container = document.getElementById('environments');
@@ -275,7 +308,7 @@ export class EnvironmentEditorProvider {
 
                     Object.entries(environments).forEach(([envName, variables]) => {
                         const section = document.createElement('div');
-                        section.className = 'environment-section';
+                        section.className = 'environment-section' + (envName === currentEnv ? ' active' : '');
 
                         const header = document.createElement('div');
                         header.className = 'environment-header';
@@ -285,12 +318,15 @@ export class EnvironmentEditorProvider {
                             nameContainer.innerHTML = '<span class="environment-name">Shared Variables</span>';
                         } else {
                             nameContainer.innerHTML = \`
-                                <input type="text" value="\${envName}" 
-                                    onchange="renameEnvironment('\${envName}', this.value)"
-                                    style="font-size: 1.2em; font-weight: bold;">
-                                <button class="delete-btn" onclick="deleteEnvironment('\${envName}')"
-                                    style="margin-left: 10px;"
-                                    \${envName === '$shared' ? 'disabled' : ''}>Delete</button>
+                                <div style="display: flex; align-items: center;">
+                                    <input type="text" value="\${envName}" 
+                                        onchange="renameEnvironment('\${envName}', this.value)"
+                                        style="font-size: 1.2em; font-weight: bold;">
+                                    \${envName === currentEnv ? '<span class="active-badge">Active</span>' : ''}
+                                    <button class="delete-btn" onclick="deleteEnvironment('\${envName}')"
+                                        style="margin-left: 10px;"
+                                        \${envName === '$shared' ? 'disabled' : ''}>Delete</button>
+                                </div>
                             \`;
                         }
                         header.appendChild(nameContainer);

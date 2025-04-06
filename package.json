@@ -339,8 +339,8 @@
       },
       {
         "command": "teapie-extensions.openEnvironmentEditor",
-        "key": "ctrl+alt+e",
-        "mac": "cmd+alt+e"
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n"
       }
     ],
     "languages": [
@@ -363,7 +363,15 @@
         "language": "csharp",
         "path": "./snippets/csharp.json"
       }
-    ]
+    ],
+    "iconDefinitions": {
+      "teapie": {
+        "description": "TeaPie icon",
+        "default": {
+          "fontPath": "./resources/teapie.png"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
