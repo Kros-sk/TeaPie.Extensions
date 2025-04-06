@@ -44,6 +44,9 @@ export async function activate(context: vscode.ExtensionContext) {
         outputChannel.appendLine(`Failed to initialize TeaPie language server: ${error}`);
     });
 
+    // Set extension context for VariablesProvider
+    VariablesProvider.setExtensionContext(context);
+
     // Initialize TestRenameProvider
     const testRenameProvider = new TestRenameProvider(context);
 
