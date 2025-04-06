@@ -15,12 +15,17 @@ export class EnvironmentEditorProvider {
     private static watcher: vscode.FileSystemWatcher | undefined;
     private static statusBarItem: vscode.StatusBarItem;
     private static context: vscode.ExtensionContext;
+    private static readonly onEnvironmentChanged = new vscode.EventEmitter<string>();
 
     static initialize(context: vscode.ExtensionContext) {
         this.context = context;
         this.setupStatusBar();
         this.setupFileWatcher();
         this.loadCurrentEnvironment();
+    }
+
+    public static get onDidChangeEnvironment(): vscode.Event<string> {
+        return this.onEnvironmentChanged.event;
     }
 
     private static setupStatusBar() {
@@ -69,6 +74,12 @@ export class EnvironmentEditorProvider {
         }
     }
 
+    private static async updateEnvironment(environment: string) {
+        await this.context.workspaceState.update('teapie.currentEnvironment', environment);
+        this.updateStatusBar(environment);
+        this.onEnvironmentChanged.fire(environment);
+    }
+
     private static updateStatusBar(environment: string = 'local') {
         this.statusBarItem.text = `$(symbol-misc) TeaPie ENV: ${environment}`;
         this.statusBarItem.tooltip = 'Click to change TeaPie environment';
@@ -93,8 +104,7 @@ export class EnvironmentEditorProvider {
         });
 
         if (selected) {
-            await this.context.workspaceState.update('teapie.currentEnvironment', selected);
-            this.updateStatusBar(selected);
+            await this.updateEnvironment(selected);
         }
     }
 

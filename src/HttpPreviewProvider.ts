@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import { EnvironmentEditorProvider } from './EnvironmentEditorProvider';
 import { VariablesProvider } from './VariablesProvider';
 
 export class HttpPreviewProvider {
@@ -9,6 +10,7 @@ export class HttpPreviewProvider {
     private static currentFile: vscode.Uri | undefined;
     private static fileWatcher: vscode.FileSystemWatcher | undefined;
     private static showVariableValues: boolean = true;
+    private static environmentChangeDisposable: vscode.Disposable | undefined;
 
     public static async show(uri: vscode.Uri) {
         const column = vscode.window.activeTextEditor
@@ -43,6 +45,9 @@ export class HttpPreviewProvider {
 
         HttpPreviewProvider.currentPanel.webview.html = await HttpPreviewProvider.getWebviewContent(uri);
 
+        // Setup environment change handler
+        HttpPreviewProvider.setupEnvironmentChangeHandler();
+
         // Handle messages from the webview
         HttpPreviewProvider.currentPanel.webview.onDidReceiveMessage(
             async message => {
@@ -61,7 +66,7 @@ export class HttpPreviewProvider {
 
         // Setup file watcher if not already set up
         if (!HttpPreviewProvider.fileWatcher) {
-            HttpPreviewProvider.fileWatcher = vscode.workspace.createFileSystemWatcher('**/*-req.http');
+            HttpPreviewProvider.fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.http');
             
             // Watch for file changes
             HttpPreviewProvider.fileWatcher.onDidChange(async (changedUri) => {
@@ -82,11 +87,33 @@ export class HttpPreviewProvider {
                     HttpPreviewProvider.fileWatcher.dispose();
                     HttpPreviewProvider.fileWatcher = undefined;
                 }
+                // Dispose environment change handler
+                if (HttpPreviewProvider.environmentChangeDisposable) {
+                    HttpPreviewProvider.environmentChangeDisposable.dispose();
+                    HttpPreviewProvider.environmentChangeDisposable = undefined;
+                }
                 HttpPreviewProvider.currentFile = undefined;
             },
             null,
             []
         );
+    }
+
+    private static setupEnvironmentChangeHandler() {
+        // Dispose existing handler if any
+        if (HttpPreviewProvider.environmentChangeDisposable) {
+            HttpPreviewProvider.environmentChangeDisposable.dispose();
+        }
+
+        // Setup new handler
+        HttpPreviewProvider.environmentChangeDisposable = EnvironmentEditorProvider.onDidChangeEnvironment(async () => {
+            if (HttpPreviewProvider.currentPanel && HttpPreviewProvider.currentFile) {
+                // Force reload variables and update preview
+                const variablesProvider = VariablesProvider.getInstance();
+                await variablesProvider.loadVariables(path.dirname(HttpPreviewProvider.currentFile.fsPath), true);
+                HttpPreviewProvider.currentPanel.webview.html = await HttpPreviewProvider.getWebviewContent(HttpPreviewProvider.currentFile);
+            }
+        });
     }
 
     private static generateBreadcrumb(filePath: string): string {

@@ -29,6 +29,16 @@ export class VariablesProvider {
         VariablesProvider.extensionContext = context;
     }
 
+    public static setEnvironmentChangeHandler(handler: vscode.Event<string>) {
+        handler(async () => {
+            const instance = VariablesProvider.getInstance();
+            if (instance.lastLoadedPath) {
+                instance.outputChannel.appendLine('\n[TeaPie] Environment changed, reloading variables...');
+                await instance.loadVariables(instance.lastLoadedPath, true);
+            }
+        });
+    }
+
     public static getInstance(): VariablesProvider {
         if (!VariablesProvider.instance) {
             VariablesProvider.instance = new VariablesProvider();

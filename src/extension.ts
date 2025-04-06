@@ -46,6 +46,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Set extension context for VariablesProvider
     VariablesProvider.setExtensionContext(context);
+    
+    // Set up environment change handler
+    VariablesProvider.setEnvironmentChangeHandler(EnvironmentEditorProvider.onDidChangeEnvironment);
 
     // Initialize TestRenameProvider
     const testRenameProvider = new TestRenameProvider(context);
