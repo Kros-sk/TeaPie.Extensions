@@ -188,10 +188,10 @@ export class VariablesProvider {
 
             // Merge variables with environment variables taking precedence
             this.variables = {
-                GlobalVariables: { ...envVariables.GlobalVariables, ...lastRunVariables.GlobalVariables },
-                EnvironmentVariables: { ...envVariables.EnvironmentVariables, ...lastRunVariables.EnvironmentVariables },
-                CollectionVariables: { ...envVariables.CollectionVariables, ...lastRunVariables.CollectionVariables },
-                TestCaseVariables: { ...envVariables.TestCaseVariables, ...lastRunVariables.TestCaseVariables }
+                GlobalVariables: { ...lastRunVariables.GlobalVariables, ...envVariables.GlobalVariables },
+                EnvironmentVariables: { ...lastRunVariables.EnvironmentVariables, ...envVariables.EnvironmentVariables },
+                CollectionVariables: { ...lastRunVariables.CollectionVariables, ...envVariables.CollectionVariables },
+                TestCaseVariables: { ...lastRunVariables.TestCaseVariables, ...envVariables.TestCaseVariables }
             };
             
             // Update cache metadata
