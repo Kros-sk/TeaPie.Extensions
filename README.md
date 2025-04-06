@@ -34,7 +34,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `TeaPie: Open HTML Preview (F6)` - Open the current HTTP file in HTML preview mode
 - `TeaPie: Open Documentation` - Open [TeaPie documentation](https://www.teapie.fun) in your default browser
 - `TeaPie: Focus on Test Results` - Focus on the Test Results view
-- `TeaPie: Open Variables Editor` - Open the visual editor for managing TeaPie variables
+- `TeaPie: Open Variables Editor (Ctrl+Alt+V)` - Open the visual editor for managing TeaPie variables
 
 ### Keyboard Shortcuts
 
@@ -43,6 +43,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `F7` - Cycle through test files
 - `Alt+F7` - Move to next test case
 - `Ctrl+Alt+F7` - Move to next test case (including subdirectories)
+- `Ctrl+Alt+V` - Open Variables Editor
 
 ### Context Menu Actions
 
@@ -59,6 +60,12 @@ Right-click on files or folders in the TeaPie Explorer to access additional acti
 - TeaPie installed on your system
 
 ## Release Notes
+
+### 0.0.22
+
+- ✨ Added keyboard shortcut for Variables Editor
+  - Quick access to Variables Editor with Ctrl+Alt+V (Cmd+Alt+V on macOS)
+  - Makes it easier to manage variables across your test collection
 
 ### 0.0.21
 

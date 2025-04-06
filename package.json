@@ -315,6 +315,11 @@
         "command": "teapie-extensions.nextTestCaseWithSubdirs",
         "key": "ctrl+alt+f7",
         "mac": "cmd+alt+f7"
+      },
+      {
+        "command": "teapie-extensions.openVariablesEditor",
+        "key": "ctrl+alt+v",
+        "mac": "cmd+alt+v"
       }
     ],
     "languages": [
