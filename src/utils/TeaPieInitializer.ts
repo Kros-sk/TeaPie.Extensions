@@ -64,7 +64,7 @@ export class TeaPieInitializer {
         }
     }
 
-    // This method is no longer called at extension activation
+    // Initialize TeaPie in the workspace
     async initialize(): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
@@ -74,6 +74,8 @@ export class TeaPieInitializer {
                 await this.initializeTeaPieFolder(gitRoot);
             } else {
                 this.outputChannel.appendLine('No git root found in workspace');
+                // If no git root is found, initialize at workspace root
+                await this.initializeTeaPieFolder(workspaceFolders[0].uri.fsPath);
             }
         }
     }
@@ -81,15 +83,29 @@ export class TeaPieInitializer {
     /**
      * Ensures TeaPie is initialized if needed
      * Returns true if initialization was performed, false if already initialized
+     * 
+     * This method is explicitly called by TeaPie commands that require initialization
      */
     async ensureInitialized(): Promise<boolean> {
         if (this.initialized) {
             return false;
         }
         
-        await this.initialize();
-        this.initialized = true;
-        return true;
+        // Ask user for confirmation before creating .teapie folder
+        const choice = await vscode.window.showInformationMessage(
+            'This command will initialize TeaPie in your workspace. Continue?',
+            'Yes', 'No'
+        );
+        
+        if (choice === 'Yes') {
+            await this.initialize();
+            this.initialized = true;
+            return true;
+        } else {
+            // User declined initialization
+            vscode.window.showInformationMessage('TeaPie initialization canceled');
+            return false;
+        }
     }
 
     /**

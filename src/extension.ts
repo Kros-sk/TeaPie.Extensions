@@ -203,7 +203,12 @@ export async function activate(context: vscode.ExtensionContext) {
             }
             
             // Ensure TeaPie is initialized before running tests
-            await initializer.ensureInitialized();
+            const initialized = await initializer.ensureInitialized();
+            if (!initialized) {
+                // User declined to initialize TeaPie
+                return;
+            }
+            
             await runTeaPieTest(targetPath);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to run TeaPie tests: ${error}`);
@@ -245,7 +250,12 @@ export async function activate(context: vscode.ExtensionContext) {
             }
             
             // Ensure TeaPie is initialized before running tests
-            await initializer.ensureInitialized();
+            const initialized = await initializer.ensureInitialized();
+            if (!initialized) {
+                // User declined to initialize TeaPie
+                return;
+            }
+            
             await runTeaPieTest(targetPath);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to run TeaPie test: ${error}`);
@@ -357,7 +367,11 @@ export async function activate(context: vscode.ExtensionContext) {
     let generateTestCaseDisposable = vscode.commands.registerCommand('teapie-extensions.generateTestCase', async (uri: vscode.Uri) => {
         try {
             // Ensure TeaPie is initialized before generating test case
-            await initializer.ensureInitialized();
+            const initialized = await initializer.ensureInitialized();
+            if (!initialized) {
+                // User declined to initialize TeaPie
+                return;
+            }
             
             // Get the target directory from the URI or use the workspace root
             const targetDir = uri.fsPath || vscode.workspace.workspaceFolders?.[0].uri.fsPath;
@@ -428,7 +442,11 @@ export async function activate(context: vscode.ExtensionContext) {
     let exploreCollectionDisposable = vscode.commands.registerCommand('teapie-extensions.exploreCollection', async (uri: vscode.Uri) => {
         try {
             // Ensure TeaPie is initialized before exploring collection
-            await initializer.ensureInitialized();
+            const initialized = await initializer.ensureInitialized();
+            if (!initialized) {
+                // User declined to initialize TeaPie
+                return;
+            }
             
             // Get the target directory from the URI or use the workspace root
             const targetDir = uri?.fsPath || vscode.workspace.workspaceFolders?.[0].uri.fsPath;

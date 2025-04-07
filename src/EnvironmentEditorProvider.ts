@@ -61,6 +61,8 @@ export class EnvironmentEditorProvider {
     private static async loadCurrentEnvironment() {
         const envFile = await this.getEnvironmentFile();
         if (!envFile) {
+            // No environment file, just set default empty environment
+            this.currentEnvironment = { $shared: {}, local: {} };
             return;
         }
 
@@ -120,18 +122,8 @@ export class EnvironmentEditorProvider {
             await fs.promises.access(envFilePath);
             return envFilePath;
         } catch {
-            const dirPath = path.dirname(envFilePath);
-            try {
-                await fs.promises.mkdir(dirPath, { recursive: true });
-                await fs.promises.writeFile(envFilePath, JSON.stringify({
-                    $shared: {},
-                    local: {}
-                }, null, 4));
-                return envFilePath;
-            } catch (error) {
-                vscode.window.showErrorMessage('Failed to create environment file');
-                return undefined;
-            }
+            // Don't automatically create the .teapie directory
+            return undefined;
         }
     }
 
@@ -144,7 +136,33 @@ export class EnvironmentEditorProvider {
 
         const envFile = await this.getEnvironmentFile();
         if (!envFile) {
-            return;
+            // Ask the user if they want to initialize TeaPie
+            const choice = await vscode.window.showInformationMessage(
+                'TeaPie environment file not found. Do you want to initialize TeaPie?',
+                'Yes', 'No'
+            );
+            
+            if (choice === 'Yes') {
+                // Create the .teapie directory and environment file
+                const teapiePath = path.join(workspaceFolders[0].uri.fsPath, '.teapie');
+                const envFilePath = path.join(teapiePath, 'env.json');
+                
+                try {
+                    await fs.promises.mkdir(teapiePath, { recursive: true });
+                    await fs.promises.writeFile(envFilePath, JSON.stringify({
+                        $shared: {},
+                        local: {}
+                    }, null, 4));
+                    
+                    // Now that we've created the file, continue with opening the editor
+                    await this.loadCurrentEnvironment();
+                } catch (error) {
+                    vscode.window.showErrorMessage('Failed to create environment file');
+                    return;
+                }
+            } else {
+                return;
+            }
         }
 
         if (this.currentPanel) {
@@ -180,6 +198,7 @@ export class EnvironmentEditorProvider {
     private static async saveEnvironments(environments: Environment) {
         const envFile = await this.getEnvironmentFile();
         if (!envFile) {
+            vscode.window.showErrorMessage('Environment file not found. Please initialize TeaPie first.');
             return;
         }
 
