@@ -2,7 +2,7 @@
   "name": "teapie-extensions",
   "displayName": "TeaPie Extensions",
   "description": "Run TeaPie tests directly from VS Code",
-  "version": "0.0.25",
+  "version": "0.0.26",
   "publisher": "kros",
   "icon": "resources/teapie.png",
   "repository": {
