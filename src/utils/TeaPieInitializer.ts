@@ -82,13 +82,28 @@ export class TeaPieInitializer {
 
     /**
      * Ensures TeaPie is initialized if needed
-     * Returns true if initialization was performed, false if already initialized
-     * 
-     * This method is explicitly called by TeaPie commands that require initialization
+     * Returns true if initialization was performed or already initialized, false if user declined
      */
     async ensureInitialized(): Promise<boolean> {
-        if (this.initialized) {
+        // First check if we already have a .teapie directory
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
             return false;
+        }
+
+        // Check if .teapie directory exists in git root or workspace root
+        const gitRoot = await this.findGitRoot(workspaceFolders[0].uri.fsPath);
+        const rootPath = gitRoot || workspaceFolders[0].uri.fsPath;
+        const teapiePath = path.join(rootPath, '.teapie');
+
+        if (fs.existsSync(teapiePath)) {
+            this.outputChannel.appendLine(`Found existing .teapie directory at: ${teapiePath}`);
+            this.initialized = true;
+            return true;
+        }
+
+        if (this.initialized) {
+            return true;
         }
         
         // Ask user for confirmation before creating .teapie folder
@@ -118,6 +133,8 @@ export class TeaPieInitializer {
             const potentialTeapiePath = path.join(currentPath, '.teapie');
             
             if (fs.existsSync(potentialTeapiePath)) {
+                // If we find a .teapie directory, mark as initialized
+                this.initialized = true;
                 return true;
             }
             

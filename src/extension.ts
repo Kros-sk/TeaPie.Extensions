@@ -35,7 +35,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Create TeaPie initializer but don't run initialization yet
     const initializer = new TeaPieInitializer(outputChannel);
-    
+
     // Initialize the TeaPie language server
     const server = TeaPieLanguageServer.getInstance(context);
     server.initialize().then(() => {
@@ -46,7 +46,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Set extension context for VariablesProvider
     VariablesProvider.setExtensionContext(context);
-    
+
     // Set up environment change handler
     VariablesProvider.setEnvironmentChangeHandler(EnvironmentEditorProvider.onDidChangeEnvironment);
 
@@ -66,7 +66,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const loadVariablesForFile = async (document: vscode.TextDocument, forceReload: boolean = false) => {
         if (document.languageId === 'http') {
             const variablesProvider = VariablesProvider.getInstance();
-            
+
             // Check if TeaPie directory exists, only try to load variables if it does
             const dirPath = path.dirname(document.uri.fsPath);
             if (await initializer.hasTeaPieDirectory(dirPath)) {
@@ -201,14 +201,14 @@ export async function activate(context: vscode.ExtensionContext) {
             } else {
                 throw new Error('No resourceUri in item');
             }
-            
+
             // Ensure TeaPie is initialized before running tests
             const initialized = await initializer.ensureInitialized();
             if (!initialized) {
                 // User declined to initialize TeaPie
                 return;
             }
-            
+
             await runTeaPieTest(targetPath);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to run TeaPie tests: ${error}`);
@@ -216,49 +216,64 @@ export async function activate(context: vscode.ExtensionContext) {
     });
 
     let runFileDisposable = vscode.commands.registerCommand('teapie-extensions.runFile', async (item?: TeaPieTreeItem | vscode.Uri) => {
+        outputChannel.appendLine('TeaPie runFile command triggered');
         try {
             let targetPath: string;
 
             // If no item provided, try to get from active editor
             if (!item) {
+                outputChannel.appendLine('No item provided, checking active editor');
                 const editor = vscode.window.activeTextEditor;
                 if (!editor) {
                     throw new Error('No active editor');
                 }
+                outputChannel.appendLine(`Active editor file: ${editor.document.uri.fsPath}`);
                 item = editor.document.uri;
+            } else {
+                outputChannel.appendLine(`Item provided: ${item instanceof vscode.Uri ? item.fsPath : item.label}`);
             }
 
             if (item instanceof vscode.Uri) {
                 const filePath = item.fsPath;
+                outputChannel.appendLine(`Processing URI path: ${filePath}`);
                 if (filePath.endsWith('-test.csx')) {
                     // If it's a test file, find the corresponding HTTP file
                     const httpFile = filePath.replace('-test.csx', '-req.http');
+                    outputChannel.appendLine(`Looking for HTTP file: ${httpFile}`);
                     if (fs.existsSync(httpFile)) {
                         targetPath = httpFile;
+                        outputChannel.appendLine(`Found HTTP file: ${targetPath}`);
                     } else {
                         throw new Error('No corresponding HTTP file found for this test file');
                     }
                 } else if (filePath.endsWith('-req.http')) {
                     targetPath = filePath;
+                    outputChannel.appendLine(`Using HTTP file directly: ${targetPath}`);
                 } else {
                     throw new Error('Not a TeaPie test file');
                 }
             } else if (item?.httpFileUri) {
                 targetPath = item.httpFileUri.fsPath;
+                outputChannel.appendLine(`Using HTTP file from tree item: ${targetPath}`);
             } else {
                 throw new Error('No HTTP file available');
             }
-            
+
             // Ensure TeaPie is initialized before running tests
+            outputChannel.appendLine('Checking TeaPie initialization');
             const initialized = await initializer.ensureInitialized();
             if (!initialized) {
+                outputChannel.appendLine('TeaPie initialization was declined by user');
                 // User declined to initialize TeaPie
                 return;
             }
-            
+
+            outputChannel.appendLine('Running TeaPie test...');
             await runTeaPieTest(targetPath);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to run TeaPie test: ${error}`);
+            const errorMessage = `Failed to run TeaPie test: ${error}`;
+            outputChannel.appendLine(errorMessage);
+            vscode.window.showErrorMessage(errorMessage);
         }
     });
 
@@ -372,7 +387,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 // User declined to initialize TeaPie
                 return;
             }
-            
+
             // Get the target directory from the URI or use the workspace root
             const targetDir = uri.fsPath || vscode.workspace.workspaceFolders?.[0].uri.fsPath;
             if (!targetDir) {
@@ -447,7 +462,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 // User declined to initialize TeaPie
                 return;
             }
-            
+
             // Get the target directory from the URI or use the workspace root
             const targetDir = uri?.fsPath || vscode.workspace.workspaceFolders?.[0].uri.fsPath;
             if (!targetDir) {
@@ -868,11 +883,31 @@ async function runTeaPieTest(testPath: string) {
         const reportPath = path.join(workspaceFolder.uri.fsPath, '.teapie', 'reports', 'last-run-report.xml');
         const command = `teapie test "${testPath}" -r "${reportPath}"${envParam}`;
 
-        const terminal = vscode.window.createTerminal('TeaPie Test');
+        outputChannel.appendLine(`Running TeaPie test command: ${command}`);
+
+        // Find existing TeaPie Test terminal or create a new one
+        let terminal = vscode.window.terminals.find(t => t.name === 'TeaPie Test');
+        if (!terminal) {
+            terminal = vscode.window.createTerminal('TeaPie Test');
+            outputChannel.appendLine('Created new TeaPie Test terminal');
+        } else {
+            outputChannel.appendLine('Reusing existing TeaPie Test terminal');
+        }
+
         terminal.show();
-        terminal.sendText(command);
+
+        // Clear the terminal and ensure we're in a clean state
+        terminal.sendText('clear', true);
+        // Small delay to ensure terminal is cleared
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Execute the command with explicit Enter
+        terminal.sendText(command, true);
+        outputChannel.appendLine('Command sent to terminal');
     } catch (error) {
-        vscode.window.showErrorMessage(`Failed to run TeaPie test: ${error}`);
+        const errorMessage = `Failed to run TeaPie test: ${error}`;
+        outputChannel.appendLine(errorMessage);
+        vscode.window.showErrorMessage(errorMessage);
     }
 }
 
