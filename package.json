@@ -179,6 +179,11 @@
         "title": "TeaPie: Open Environment Editor",
         "category": "TeaPie",
         "icon": "$(symbol-enum)"
+      },
+      {
+        "command": "teapie-extensions.compileScript",
+        "title": "TeaPie: Compile Script",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
@@ -276,6 +281,11 @@
           "command": "teapie-extensions.openEnvironmentEditor",
           "group": "teapie@3",
           "when": "explorerResourceIsFolder"
+        },
+        {
+          "command": "teapie-extensions.compileScript",
+          "group": "teapie@2",
+          "when": "resourceFilename =~ /.*-(test|init)\\.csx$/"
         }
       ],
       "editor/context": [
@@ -288,6 +298,11 @@
           "command": "teapie-extensions.previewHttpFile",
           "when": "resourceExtname == .http",
           "group": "navigation@3"
+        },
+        {
+          "command": "teapie-extensions.compileScript",
+          "when": "resourceFilename =~ /.*-(test|init)\\.csx$/",
+          "group": "navigation@2"
         }
       ],
       "editor/title": [
@@ -340,6 +355,12 @@
         "command": "teapie-extensions.openEnvironmentEditor",
         "key": "ctrl+alt+n",
         "mac": "cmd+alt+n"
+      },
+      {
+        "command": "teapie-extensions.compileScript",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "editorTextFocus && resourceFilename =~ /.*-(test|init)\\.csx$/"
       }
     ],
     "languages": [

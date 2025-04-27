@@ -689,6 +689,63 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // Register compileScript command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('teapie-extensions.compileScript', async (item?: TeaPieTreeItem | vscode.Uri) => {
+            try {
+                let targetPath: string;
+
+                // Ak nie je item, použijeme aktívny editor
+                if (!item) {
+                    const editor = vscode.window.activeTextEditor;
+                    if (!editor) {
+                        throw new Error('No active editor');
+                    }
+                    targetPath = editor.document.uri.fsPath;
+                } else if (item instanceof vscode.Uri) {
+                    targetPath = item.fsPath;
+                } else if (item?.resourceUri) {
+                    targetPath = item.resourceUri.fsPath;
+                } else {
+                    throw new Error('No valid file selected');
+                }
+
+                if (!(targetPath.endsWith('-test.csx') || targetPath.endsWith('-init.csx'))) {
+                    vscode.window.showErrorMessage('Compile command is only available for -test.csx or -init.csx files.');
+                    return;
+                }
+
+                // Ensure TeaPie is initialized
+                const initialized = await initializer.ensureInitialized();
+                if (!initialized) {
+                    outputChannel.appendLine('TeaPie initialization was declined by user');
+                    return;
+                }
+
+                const command = `teapie compile "${targetPath}"`;
+                outputChannel.appendLine(`Running TeaPie compile command: ${command}`);
+
+                // Find or create terminal
+                let terminal = vscode.window.terminals.find(t => t.name === 'TeaPie Compile');
+                if (!terminal) {
+                    terminal = vscode.window.createTerminal('TeaPie Compile');
+                    outputChannel.appendLine('Created new TeaPie Compile terminal');
+                } else {
+                    outputChannel.appendLine('Reusing existing TeaPie Compile terminal');
+                }
+                terminal.show();
+                terminal.sendText('clear', true);
+                await new Promise(resolve => setTimeout(resolve, 100));
+                terminal.sendText(command, true);
+                outputChannel.appendLine('Compile command sent to terminal');
+            } catch (error) {
+                const errorMessage = `Failed to compile TeaPie script: ${error}`;
+                outputChannel.appendLine(errorMessage);
+                vscode.window.showErrorMessage(errorMessage);
+            }
+        })
+    );
+
     // Register commands
     context.subscriptions.push(
         vscode.commands.registerCommand('teapie-extensions.openDocs', () => {
