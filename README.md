@@ -74,6 +74,14 @@ The Environment Editor allows you to:
 
 ## Release Notes
 
+### 0.0.27
+
+- ✨ Added C# Script Compilation Support
+  - New command to compile C# scripts (`Ctrl+Alt+K / Cmd+Alt+K`)
+  - Automatic compilation of test and initialization scripts
+  - Improved error reporting for compilation issues
+  - Support for both `-test.csx` and `-init.csx` files
+
 ### 0.0.23
 
 - ✨ Added Environment Editor and Environment Switching
