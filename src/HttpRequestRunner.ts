@@ -188,6 +188,17 @@ export class HttpRequestRunner {
                                 .map(([key, value]) => `<div class="header-item"><strong>${key}:</strong> ${value}</div>`)
                                 .join('');
                             
+                            // Format request body if it's JSON
+                            let formattedRequestBody = request.Request.Body;
+                            if (formattedRequestBody) {
+                                try {
+                                    const parsed = JSON.parse(formattedRequestBody);
+                                    formattedRequestBody = JSON.stringify(parsed, null, 2);
+                                } catch (e) {
+                                    // Not JSON, keep as is
+                                }
+                            }
+                            
                             requestHtml = `
                                 <div class="request-section">
                                     <h3>Request</h3>
@@ -196,7 +207,7 @@ export class HttpRequestRunner {
                                         <span class="url">${request.Request.Url}</span>
                                     </div>
                                     ${headersHtml ? `<div class="headers"><h4>Headers:</h4>${headersHtml}</div>` : ''}
-                                    ${request.Request.Body ? `<div class="body"><h4>Body:</h4><pre>${request.Request.Body}</pre></div>` : ''}
+                                    ${formattedRequestBody ? `<div class="body"><h4>Body:</h4><pre>${formattedRequestBody}</pre></div>` : ''}
                                 </div>
                             `;
                         }
@@ -210,6 +221,17 @@ export class HttpRequestRunner {
                                 .map(([key, value]) => `<div class="header-item"><strong>${key}:</strong> ${value}</div>`)
                                 .join('');
                             
+                            // Format response body if it's JSON
+                            let formattedResponseBody = request.Response.Body;
+                            if (formattedResponseBody) {
+                                try {
+                                    const parsed = JSON.parse(formattedResponseBody);
+                                    formattedResponseBody = JSON.stringify(parsed, null, 2);
+                                } catch (e) {
+                                    // Not JSON, keep as is
+                                }
+                            }
+                            
                             responseHtml = `
                                 <div class="response-section">
                                     <h3>Response</h3>
@@ -219,7 +241,7 @@ export class HttpRequestRunner {
                                         <span class="duration">${request.Response.Duration}</span>
                                     </div>
                                     ${responseHeadersHtml ? `<div class="headers"><h4>Headers:</h4>${responseHeadersHtml}</div>` : ''}
-                                    ${request.Response.Body ? `<div class="body"><h4>Body:</h4><pre>${request.Response.Body}</pre></div>` : ''}
+                                    ${formattedResponseBody ? `<div class="body"><h4>Body:</h4><pre>${formattedResponseBody}</pre></div>` : ''}
                                 </div>
                             `;
                         }
@@ -692,6 +714,15 @@ export class HttpRequestRunner {
             
             HttpRequestRunner.outputChannel.appendLine(`Parsing verbose output with ${lines.length} lines`);
             
+            // Debug: Log first 50 lines to see the structure
+            HttpRequestRunner.outputChannel.appendLine('=== VERBOSE OUTPUT SAMPLE ===');
+            lines.slice(0, 50).forEach((line, index) => {
+                if (line.includes('HTTP request') || line.includes('response') || line.includes('body')) {
+                    HttpRequestRunner.outputChannel.appendLine(`[${index}]: ${line.trim()}`);
+                }
+            });
+            HttpRequestRunner.outputChannel.appendLine('=== END SAMPLE ===');
+            
             const testSuite: TeaPieTestSuite = {
                 Name: fileName,
                 FilePath: filePath,
@@ -713,6 +744,7 @@ export class HttpRequestRunner {
             }> = [];
 
             let currentRequest: any = null;
+            const startedRequests: string[] = []; // Track all started requests for debugging
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
@@ -720,13 +752,16 @@ export class HttpRequestRunner {
                 // Look for: "Start processing HTTP request POST http://localhost:3001/cars"
                 const startRequestMatch = line.match(/Start processing HTTP request (\w+)\s+(.+)/);
                 if (startRequestMatch) {
+                    const requestDesc = `${startRequestMatch[1]} ${startRequestMatch[2]}`;
+                    startedRequests.push(requestDesc);
+                    
                     currentRequest = {
                         method: startRequestMatch[1],
                         url: startRequestMatch[2],
                         requestHeaders: {},
                         responseHeaders: {}
                     };
-                    HttpRequestRunner.outputChannel.appendLine(`Found request: ${currentRequest.method} ${currentRequest.url}`);
+                    HttpRequestRunner.outputChannel.appendLine(`🚀 Found request: ${currentRequest.method} ${currentRequest.url}`);
                     continue;
                 }
 
@@ -820,20 +855,188 @@ export class HttpRequestRunner {
 
                 // Look for: "End processing HTTP request after 228.6335ms - 201"
                 const endRequestMatch = line.match(/End processing HTTP request after ([\d.]+)ms - (\d+)/);
-                if (currentRequest && endRequestMatch) {
-                    currentRequest.duration = endRequestMatch[1] + 'ms';
-                    currentRequest.responseStatus = parseInt(endRequestMatch[2]);
+                if (endRequestMatch) {
+                    const duration = endRequestMatch[1] + 'ms';
+                    const statusCode = parseInt(endRequestMatch[2]);
                     
-                    // Request is complete, add it to the list
-                    httpRequests.push(currentRequest);
-                    HttpRequestRunner.outputChannel.appendLine(`Completed request: ${currentRequest.method} ${currentRequest.url} -> ${currentRequest.responseStatus}`);
-                    currentRequest = null;
+                    // If we have a current request, update it
+                    if (currentRequest) {
+                        currentRequest.duration = duration;
+                        currentRequest.responseStatus = statusCode;
+                        
+                        httpRequests.push(currentRequest);
+                        HttpRequestRunner.outputChannel.appendLine(`✅ Completed request: ${currentRequest.method} ${currentRequest.url} -> ${currentRequest.responseStatus} (${currentRequest.duration})`);
+                        
+                        currentRequest = null;
+                    } else {
+                        // If no current request, try to find which request this belongs to by looking backwards
+                        HttpRequestRunner.outputChannel.appendLine(`⚠️ Found end marker without current request: ${duration} - ${statusCode}. Looking for matching start...`);
+                        
+                        // Look for the most recent started request that hasn't been completed yet
+                        for (let startIndex = startedRequests.length - 1; startIndex >= 0; startIndex--) {
+                            const startedReq = startedRequests[startIndex];
+                            const [method, url] = startedReq.split(' ', 2);
+                            
+                            // Check if this request was already completed
+                            const alreadyCompleted = httpRequests.some(req => req.method === method && req.url === url);
+                            if (!alreadyCompleted) {
+                                // Found the matching uncompleted request, now try to find its body and response body by looking backwards
+                                let requestBody: string | undefined;
+                                let responseBody: string | undefined;
+                                let responseStatusText: string | undefined;
+                                const requestHeaders: {[key: string]: string} = {};
+                                const responseHeaders: {[key: string]: string} = {};
+                                
+                                // Look backwards from current position to find request/response data for this specific request
+                                for (let backIndex = i - 1; backIndex >= 0; backIndex--) {
+                                    const backLine = lines[backIndex].trim();
+                                    
+                                    // Stop if we hit the start of this request
+                                    if (backLine.includes(`Start processing HTTP request ${method} ${url}`)) {
+                                        break;
+                                    }
+                                    
+                                    // Look for request body
+                                    if (!requestBody && backLine.includes("Following HTTP request's body")) {
+                                        const contentTypeMatch = backLine.match(/\(([^)]+)\)/);
+                                        if (contentTypeMatch) {
+                                            requestHeaders['Content-Type'] = contentTypeMatch[1];
+                                        }
+                                        
+                                        // Read body lines after this marker
+                                        const bodyLines: string[] = [];
+                                        let bodyIndex = backIndex + 1;
+                                        while (bodyIndex < lines.length) {
+                                            const bodyLine = lines[bodyIndex];
+                                            if (bodyLine.trim().match(/^\[[\d:]+\s+\w+\]/) || bodyLine.includes('INF] Sending HTTP request')) {
+                                                break;
+                                            }
+                                            bodyLines.push(bodyLine);
+                                            bodyIndex++;
+                                        }
+                                        if (bodyLines.length > 0) {
+                                            requestBody = bodyLines.join('\n').trim();
+                                        }
+                                    }
+                                    
+                                    // Look for response body
+                                    if (!responseBody && backLine.includes("Response's body")) {
+                                        const contentTypeMatch = backLine.match(/\(([^)]+)\)/);
+                                        if (contentTypeMatch) {
+                                            responseHeaders['Content-Type'] = contentTypeMatch[1];
+                                        }
+                                        
+                                        // Read body lines after this marker
+                                        const bodyLines: string[] = [];
+                                        let bodyIndex = backIndex + 1;
+                                        while (bodyIndex < lines.length) {
+                                            const bodyLine = lines[bodyIndex];
+                                            if (bodyLine.trim().match(/^\[[\d:]+\s+\w+\]/) || bodyLine.includes('INF] End processing')) {
+                                                break;
+                                            }
+                                            bodyLines.push(bodyLine);
+                                            bodyIndex++;
+                                        }
+                                        if (bodyLines.length > 0) {
+                                            responseBody = bodyLines.join('\n').trim();
+                                        }
+                                    }
+                                    
+                                    // Look for response status text
+                                    if (!responseStatusText) {
+                                        const statusMatch = backLine.match(/HTTP Response \d+ \(([^)]+)\) was received/);
+                                        if (statusMatch) {
+                                            responseStatusText = statusMatch[1];
+                                        }
+                                    }
+                                }
+                                
+                                // Found the matching uncompleted request
+                                const orphanedRequest = {
+                                    method: method,
+                                    url: url,
+                                    duration: duration,
+                                    responseStatus: statusCode,
+                                    responseStatusText: responseStatusText,
+                                    requestBody: requestBody,
+                                    responseBody: responseBody,
+                                    requestHeaders: requestHeaders,
+                                    responseHeaders: responseHeaders
+                                };
+                                
+                                httpRequests.push(orphanedRequest);
+                                HttpRequestRunner.outputChannel.appendLine(`✅ Recovered orphaned request: ${method} ${url} -> ${statusCode} (${duration}) with ${requestBody ? 'request body' : 'no request body'} and ${responseBody ? 'response body' : 'no response body'}`);
+                                break;
+                            }
+                        }
+                    }
                     continue;
                 }
             }
 
-            // Convert parsed HTTP requests to test format
+            // Handle any remaining currentRequest that didn't complete properly
+            if (currentRequest) {
+                HttpRequestRunner.outputChannel.appendLine(`⚠️ Found incomplete request: ${currentRequest.method} ${currentRequest.url} (no end marker found)`);
+                // Add it anyway, it might have useful information
+                httpRequests.push(currentRequest);
+            }
+
+            HttpRequestRunner.outputChannel.appendLine(`Found ${httpRequests.length} total HTTP requests in verbose output`);
+            
+            // Debug: Show all started vs completed requests
+            HttpRequestRunner.outputChannel.appendLine('=== REQUEST TRACKING ===');
+            HttpRequestRunner.outputChannel.appendLine(`Started requests: ${startedRequests.length}`);
+            startedRequests.forEach((req, index) => {
+                HttpRequestRunner.outputChannel.appendLine(`  ${index + 1}. ${req}`);
+            });
+            HttpRequestRunner.outputChannel.appendLine(`Completed requests: ${httpRequests.length}`);
             httpRequests.forEach((req, index) => {
+                HttpRequestRunner.outputChannel.appendLine(`  ${index + 1}. ${req.method} ${req.url} -> ${req.responseStatus || 'no response'}`);
+            });
+            HttpRequestRunner.outputChannel.appendLine('=== END TRACKING ===');
+
+            // Convert parsed HTTP requests to test format, removing duplicates by method+url
+            // Group requests by method and URL, keeping only the best response
+            const uniqueRequests = new Map<string, any>();
+            
+            httpRequests.forEach((req, index) => {
+                const requestKey = `${req.method}:${req.url}`;
+                
+                if (uniqueRequests.has(requestKey)) {
+                    const existing = uniqueRequests.get(requestKey);
+                    
+                    // Prefer successful responses (2xx status codes)
+                    const currentIsSuccess = req.responseStatus ? (req.responseStatus >= 200 && req.responseStatus < 300) : false;
+                    const existingIsSuccess = existing.responseStatus ? (existing.responseStatus >= 200 && existing.responseStatus < 300) : false;
+                    
+                    // Keep the current one if:
+                    // 1. Current is successful and existing is not
+                    // 2. Both are successful or both are not successful, keep the one with more complete data
+                    if ((currentIsSuccess && !existingIsSuccess) ||
+                        (currentIsSuccess === existingIsSuccess && 
+                         (req.responseBody || !existing.responseBody))) {
+                        uniqueRequests.set(requestKey, req);
+                        HttpRequestRunner.outputChannel.appendLine(`Replacing duplicate request ${requestKey}: current=${req.responseStatus || 'none'}, existing=${existing.responseStatus || 'none'}`);
+                    } else {
+                        HttpRequestRunner.outputChannel.appendLine(`Keeping existing request ${requestKey}: keeping=${existing.responseStatus || 'none'}, ignoring=${req.responseStatus || 'none'}`);
+                    }
+                } else {
+                    uniqueRequests.set(requestKey, req);
+                    HttpRequestRunner.outputChannel.appendLine(`Adding new request ${requestKey}: status=${req.responseStatus || 'none'}`);
+                }
+            });
+
+            HttpRequestRunner.outputChannel.appendLine(`Reduced ${httpRequests.length} requests to ${uniqueRequests.size} unique requests`);
+            
+            // Debug: Show what requests we're keeping
+            HttpRequestRunner.outputChannel.appendLine('=== FINAL UNIQUE REQUESTS ===');
+            Array.from(uniqueRequests.values()).forEach((req, index) => {
+                HttpRequestRunner.outputChannel.appendLine(`${index + 1}. ${req.method} ${req.url} -> ${req.responseStatus || 'no response'}`);
+            });
+            HttpRequestRunner.outputChannel.appendLine('=== END UNIQUE REQUESTS ===');
+
+            // Convert unique requests to test format
+            Array.from(uniqueRequests.values()).forEach((req, index) => {
                 const test: TeaPieTest = {
                     Name: `${req.method} ${req.url}`,
                     Status: req.responseStatus && req.responseStatus >= 200 && req.responseStatus < 400 ? 'Passed' : 'Failed',
