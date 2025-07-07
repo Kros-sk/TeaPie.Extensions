@@ -184,6 +184,11 @@
         "command": "teapie-extensions.compileScript",
         "title": "TeaPie: Compile Script",
         "icon": "$(gear)"
+      },
+      {
+        "command": "teapie-extensions.runHttpRequest",
+        "title": "TeaPie: Run HTTP Request",
+        "icon": "$(play)"
       }
     ],
     "menus": {
@@ -300,6 +305,11 @@
           "group": "navigation@3"
         },
         {
+          "command": "teapie-extensions.runHttpRequest",
+          "when": "resourceExtname == .http",
+          "group": "navigation@4"
+        },
+        {
           "command": "teapie-extensions.compileScript",
           "when": "resourceFilename =~ /.*-(test|init)\\.csx$/",
           "group": "navigation@2"
@@ -313,6 +323,11 @@
         },
         {
           "command": "teapie-extensions.previewHttpFile",
+          "when": "resourceExtname == .http",
+          "group": "navigation"
+        },
+        {
+          "command": "teapie-extensions.runHttpRequest",
           "when": "resourceExtname == .http",
           "group": "navigation"
         }
@@ -361,6 +376,12 @@
         "key": "ctrl+alt+k",
         "mac": "cmd+alt+k",
         "when": "editorTextFocus && resourceFilename =~ /.*-(test|init)\\.csx$/"
+      },
+      {
+        "command": "teapie-extensions.runHttpRequest",
+        "key": "f8",
+        "mac": "f8",
+        "when": "editorTextFocus && resourceExtname == .http"
       }
     ],
     "languages": [
