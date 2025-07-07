@@ -95,7 +95,7 @@ export class HttpRequestRunner {
             }
 
         } catch (error) {
-            const errorMessage = `Failed to run HTTP requests: ${error}`;
+            const errorMessage = `Failed to execute HTTP requests: ${error}`;
             HttpRequestRunner.outputChannel.appendLine(errorMessage);
             
             // Update the panel with error state
@@ -117,8 +117,8 @@ export class HttpRequestRunner {
         const currentEnv = vscode.workspace.getConfiguration().get<string>('teapie.currentEnvironment');
         const envParam = currentEnv ? ` -e "${currentEnv}"` : '';
 
-        // Use simpler command without XML report - just capture stdout
-        const command = `teapie test "${filePath}" --no-logo${envParam}`;
+        // Use verbose flag to get detailed HTTP request/response information
+        const command = `teapie test "${filePath}" --no-logo --verbose${envParam}`;
         
         HttpRequestRunner.outputChannel.appendLine(`Executing TeaPie command: ${command}`);
         HttpRequestRunner.outputChannel.appendLine(`Working directory: ${workspaceFolder.uri.fsPath}`);
@@ -134,21 +134,20 @@ export class HttpRequestRunner {
                 HttpRequestRunner.outputChannel.appendLine(`TeaPie stderr: ${stderr}`);
             }
 
-            // Parse stdout directly since it contains all the information we need
-            return HttpRequestRunner.parseStdoutOutput(stdout, filePath);
+            // Parse verbose output to extract HTTP request/response information
+            return HttpRequestRunner.parseVerboseOutput(stdout, filePath);
 
         } catch (error: any) {
             HttpRequestRunner.outputChannel.appendLine(`TeaPie execution error: ${error}`);
             
-            // Don't throw the error - instead create a failed test result
-            // This way we can still show the webview with error information
+            // Don't throw the error - instead create a failed result
             const errorOutput = error.stdout || error.message || error.toString();
             HttpRequestRunner.outputChannel.appendLine(`Error output: ${errorOutput}`);
             
             // Try to parse the error output if it contains useful information
             if (error.stdout) {
                 try {
-                    return HttpRequestRunner.parseStdoutOutput(error.stdout, filePath);
+                    return HttpRequestRunner.parseVerboseOutput(error.stdout, filePath);
                 } catch (parseError) {
                     HttpRequestRunner.outputChannel.appendLine(`Failed to parse error stdout: ${parseError}`);
                 }
@@ -161,7 +160,7 @@ export class HttpRequestRunner {
                         Name: path.basename(filePath, path.extname(filePath)),
                         FilePath: filePath,
                         Tests: [{
-                            Name: 'Test Execution Failed',
+                            Name: 'HTTP Request Failed',
                             Status: 'Failed',
                             Duration: '0ms',
                             ErrorMessage: error.message || error.toString()
@@ -177,91 +176,74 @@ export class HttpRequestRunner {
     private static getWebviewContent(results: TeaPieResult, fileUri: vscode.Uri): string {
         const fileName = path.basename(fileUri.fsPath);
         
-        let testSuitesHtml = '';
+        let requestsHtml = '';
         
         if (results.TestSuites && results.TestSuites.TestSuite) {
             results.TestSuites.TestSuite.forEach(suite => {
-                const statusClass = suite.Status === 'Passed' ? 'success' : 'error';
-                
-                let testsHtml = '';
                 if (suite.Tests) {
-                    suite.Tests.forEach(test => {
-                        const testStatusClass = test.Status === 'Passed' ? 'success' : 'error';
-                        
+                    suite.Tests.forEach(request => {
                         let requestHtml = '';
-                        if (test.Request) {
-                            const headersHtml = Object.entries(test.Request.Headers || {})
+                        if (request.Request) {
+                            const headersHtml = Object.entries(request.Request.Headers || {})
                                 .map(([key, value]) => `<div class="header-item"><strong>${key}:</strong> ${value}</div>`)
                                 .join('');
                             
                             requestHtml = `
                                 <div class="request-section">
-                                    <h4>Request</h4>
+                                    <h3>Request</h3>
                                     <div class="method-url">
-                                        <span class="method method-${test.Request.Method.toLowerCase()}">${test.Request.Method}</span>
-                                        <span class="url">${test.Request.Url}</span>
+                                        <span class="method method-${request.Request.Method.toLowerCase()}">${request.Request.Method}</span>
+                                        <span class="url">${request.Request.Url}</span>
                                     </div>
-                                    ${headersHtml ? `<div class="headers"><h5>Headers:</h5>${headersHtml}</div>` : ''}
-                                    ${test.Request.Body ? `<div class="body"><h5>Body:</h5><pre>${test.Request.Body}</pre></div>` : ''}
+                                    ${headersHtml ? `<div class="headers"><h4>Headers:</h4>${headersHtml}</div>` : ''}
+                                    ${request.Request.Body ? `<div class="body"><h4>Body:</h4><pre>${request.Request.Body}</pre></div>` : ''}
                                 </div>
                             `;
                         }
                         
                         let responseHtml = '';
-                        if (test.Response) {
-                            const statusClass = test.Response.StatusCode >= 200 && test.Response.StatusCode < 300 ? 'success' : 
-                                               test.Response.StatusCode >= 400 ? 'error' : 'warning';
+                        if (request.Response) {
+                            const statusClass = request.Response.StatusCode >= 200 && request.Response.StatusCode < 300 ? 'success' : 
+                                               request.Response.StatusCode >= 400 ? 'error' : 'warning';
                             
-                            const responseHeadersHtml = Object.entries(test.Response.Headers || {})
+                            const responseHeadersHtml = Object.entries(request.Response.Headers || {})
                                 .map(([key, value]) => `<div class="header-item"><strong>${key}:</strong> ${value}</div>`)
                                 .join('');
                             
                             responseHtml = `
                                 <div class="response-section">
-                                    <h4>Response</h4>
+                                    <h3>Response</h3>
                                     <div class="status-line">
-                                        <span class="status-code status-${statusClass}">${test.Response.StatusCode}</span>
-                                        <span class="status-text">${test.Response.StatusText}</span>
-                                        <span class="duration">${test.Response.Duration}</span>
+                                        <span class="status-code status-${statusClass}">${request.Response.StatusCode}</span>
+                                        <span class="status-text">${request.Response.StatusText}</span>
+                                        <span class="duration">${request.Response.Duration}</span>
                                     </div>
-                                    ${responseHeadersHtml ? `<div class="headers"><h5>Headers:</h5>${responseHeadersHtml}</div>` : ''}
-                                    ${test.Response.Body ? `<div class="body"><h5>Body:</h5><pre>${test.Response.Body}</pre></div>` : ''}
+                                    ${responseHeadersHtml ? `<div class="headers"><h4>Headers:</h4>${responseHeadersHtml}</div>` : ''}
+                                    ${request.Response.Body ? `<div class="body"><h4>Body:</h4><pre>${request.Response.Body}</pre></div>` : ''}
                                 </div>
                             `;
                         }
                         
                         let errorHtml = '';
-                        if (test.ErrorMessage) {
-                            errorHtml = `<div class="error-section"><h4>Error</h4><pre class="error-message">${test.ErrorMessage}</pre></div>`;
+                        if (request.ErrorMessage) {
+                            errorHtml = `<div class="error-section"><h3>Error</h3><pre class="error-message">${request.ErrorMessage}</pre></div>`;
                         }
                         
-                        testsHtml += `
-                            <div class="test-item">
-                                <div class="test-header">
-                                    <h3 class="test-name ${testStatusClass}">${test.Name}</h3>
-                                    <span class="test-status ${testStatusClass}">${test.Status}</span>
-                                    <span class="test-duration">${test.Duration}</span>
+                        requestsHtml += `
+                            <div class="http-request-item">
+                                <div class="request-header">
+                                    <h2>${request.Name}</h2>
+                                    <span class="request-status ${request.Status?.toLowerCase()}">${request.Status}</span>
                                 </div>
-                                ${requestHtml}
-                                ${responseHtml}
-                                ${errorHtml}
+                                <div class="request-response-container">
+                                    ${requestHtml}
+                                    ${responseHtml}
+                                    ${errorHtml}
+                                </div>
                             </div>
                         `;
                     });
                 }
-                
-                testSuitesHtml += `
-                    <div class="test-suite">
-                        <div class="suite-header">
-                            <h2 class="suite-name ${statusClass}">${suite.Name}</h2>
-                            <span class="suite-status ${statusClass}">${suite.Status}</span>
-                            <span class="suite-duration">${suite.Duration}</span>
-                        </div>
-                        <div class="tests-container">
-                            ${testsHtml}
-                        </div>
-                    </div>
-                `;
             });
         }
 
@@ -290,16 +272,18 @@ export class HttpRequestRunner {
         .header h1 {
             margin: 0;
             color: var(--vscode-foreground);
+            font-size: 24px;
         }
         
-        .test-suite {
-            margin-bottom: 30px;
+        .http-request-item {
+            margin-bottom: 40px;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 8px;
             overflow: hidden;
+            background-color: var(--vscode-editor-background);
         }
         
-        .suite-header {
+        .request-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -308,87 +292,71 @@ export class HttpRequestRunner {
             border-bottom: 1px solid var(--vscode-panel-border);
         }
         
-        .suite-name {
+        .request-header h2 {
             margin: 0;
-            font-size: 18px;
+            font-size: 16px;
+            font-weight: 600;
         }
         
-        .suite-status, .test-status {
+        .request-status {
             padding: 4px 8px;
             border-radius: 4px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: bold;
             text-transform: uppercase;
         }
         
-        .suite-duration, .test-duration {
-            font-size: 12px;
-            color: var(--vscode-descriptionForeground);
+        .request-status.passed, .request-status.completed {
+            background-color: var(--vscode-terminal-ansiGreen);
+            color: white;
         }
         
-        .success {
-            color: var(--vscode-terminal-ansiGreen);
+        .request-status.failed {
+            background-color: var(--vscode-terminal-ansiRed);
+            color: white;
         }
         
-        .error {
-            color: var(--vscode-terminal-ansiRed);
-        }
-        
-        .warning {
-            color: var(--vscode-terminal-ansiYellow);
-        }
-        
-        .tests-container {
+        .request-response-container {
             padding: 0;
         }
         
-        .test-item {
-            border-bottom: 1px solid var(--vscode-panel-border);
+        .request-section, .response-section, .error-section {
+            margin: 0;
             padding: 20px;
+            border-bottom: 1px solid var(--vscode-panel-border);
         }
         
-        .test-item:last-child {
+        .request-section:last-child, .response-section:last-child, .error-section:last-child {
             border-bottom: none;
         }
         
-        .test-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-        
-        .test-name {
-            margin: 0;
-            font-size: 16px;
-        }
-        
-        .request-section, .response-section, .error-section {
-            margin: 15px 0;
-            padding: 15px;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 6px;
-            background-color: var(--vscode-editor-background);
-        }
-        
-        .request-section h4, .response-section h4, .error-section h4 {
-            margin: 0 0 10px 0;
+        .request-section h3, .response-section h3, .error-section h3 {
+            margin: 0 0 15px 0;
+            font-size: 14px;
+            font-weight: 600;
             color: var(--vscode-foreground);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
         .method-url {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
+            gap: 15px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: var(--vscode-textCodeBlock-background);
+            border-radius: 6px;
         }
         
         .method {
-            padding: 2px 6px;
-            border-radius: 3px;
+            padding: 4px 8px;
+            border-radius: 4px;
             font-size: 11px;
             font-weight: bold;
             text-transform: uppercase;
+            min-width: 50px;
+            text-align: center;
         }
         
         .method-get { background-color: #4CAF50; color: white; }
@@ -396,68 +364,100 @@ export class HttpRequestRunner {
         .method-put { background-color: #2196F3; color: white; }
         .method-delete { background-color: #F44336; color: white; }
         .method-patch { background-color: #9C27B0; color: white; }
+        .method-head { background-color: #607D8B; color: white; }
+        .method-options { background-color: #795548; color: white; }
         
         .url {
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            font-size: 13px;
+            font-size: 14px;
+            font-weight: 500;
             word-break: break-all;
+            flex: 1;
         }
         
         .status-line {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
+            gap: 15px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: var(--vscode-textCodeBlock-background);
+            border-radius: 6px;
         }
         
         .status-code {
-            padding: 2px 6px;
-            border-radius: 3px;
+            padding: 4px 8px;
+            border-radius: 4px;
             font-weight: bold;
-            font-size: 12px;
+            font-size: 13px;
+            min-width: 40px;
+            text-align: center;
         }
         
         .status-success { background-color: #4CAF50; color: white; }
         .status-warning { background-color: #FF9800; color: white; }
         .status-error { background-color: #F44336; color: white; }
         
-        .headers {
-            margin: 10px 0;
+        .status-text {
+            font-weight: 500;
+            flex: 1;
         }
         
-        .headers h5 {
-            margin: 0 0 5px 0;
-            font-size: 13px;
+        .duration {
+            font-size: 12px;
             color: var(--vscode-descriptionForeground);
+            background-color: var(--vscode-badge-background);
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        
+        .headers {
+            margin: 15px 0;
+        }
+        
+        .headers h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--vscode-descriptionForeground);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
         .header-item {
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             font-size: 12px;
-            margin-bottom: 2px;
+            margin-bottom: 4px;
+            padding: 4px 8px;
+            background-color: var(--vscode-textCodeBlock-background);
+            border-radius: 3px;
             word-break: break-all;
         }
         
         .body {
-            margin: 10px 0;
+            margin: 15px 0 0 0;
         }
         
-        .body h5 {
-            margin: 0 0 5px 0;
-            font-size: 13px;
+        .body h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            font-weight: 600;
             color: var(--vscode-descriptionForeground);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
         pre {
             background-color: var(--vscode-textCodeBlock-background);
-            padding: 10px;
-            border-radius: 4px;
+            padding: 15px;
+            border-radius: 6px;
             overflow-x: auto;
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            font-size: 12px;
+            font-size: 13px;
             margin: 0;
             white-space: pre-wrap;
             word-wrap: break-word;
+            border: 1px solid var(--vscode-panel-border);
         }
         
         .error-message {
@@ -466,17 +466,22 @@ export class HttpRequestRunner {
         
         .no-results {
             text-align: center;
-            padding: 40px;
+            padding: 60px 20px;
             color: var(--vscode-descriptionForeground);
+        }
+
+        .no-results h2 {
+            margin: 0 0 10px 0;
+            color: var(--vscode-foreground);
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>HTTP Request Results: ${fileName}</h1>
+        <h1>HTTP Requests: ${fileName}</h1>
     </div>
     
-    ${testSuitesHtml || '<div class="no-results">No test results available</div>'}
+    ${requestsHtml || '<div class="no-results"><h2>No HTTP requests found</h2><p>Make sure your .http file contains valid HTTP requests</p></div>'}
 </body>
 </html>`;
     }
@@ -555,8 +560,8 @@ export class HttpRequestRunner {
     
     <div class="loading-container">
         <div class="spinner"></div>
-        <div class="loading-text">Running HTTP tests...</div>
-        <div class="loading-subtext">TeaPie is executing requests and validating responses</div>
+        <div class="loading-text">Executing HTTP requests...</div>
+        <div class="loading-subtext">TeaPie is processing your .http file</div>
     </div>
 </body>
 </html>`;
@@ -655,7 +660,7 @@ export class HttpRequestRunner {
     
     <div class="error-container">
         <div class="error-icon">⚠️</div>
-        <div class="error-title">Failed to run HTTP tests</div>
+        <div class="error-title">Failed to execute HTTP requests</div>
         
         <div class="error-message">${errorMessage}</div>
         
@@ -672,6 +677,290 @@ export class HttpRequestRunner {
     </div>
 </body>
 </html>`;
+    }
+
+    private static parseVerboseOutput(stdout: string, filePath: string): TeaPieResult {
+        const result: TeaPieResult = {
+            TestSuites: {
+                TestSuite: []
+            }
+        };
+
+        try {
+            const fileName = path.basename(filePath, path.extname(filePath));
+            const lines = stdout.split('\n');
+            
+            HttpRequestRunner.outputChannel.appendLine(`Parsing verbose output with ${lines.length} lines`);
+            
+            const testSuite: TeaPieTestSuite = {
+                Name: fileName,
+                FilePath: filePath,
+                Tests: [],
+                Status: 'Unknown',
+                Duration: '0s'
+            };
+
+            const httpRequests: Array<{
+                method: string;
+                url: string;
+                requestBody?: string;
+                responseStatus?: number;
+                responseStatusText?: string;
+                responseBody?: string;
+                duration?: string;
+                requestHeaders?: {[key: string]: string};
+                responseHeaders?: {[key: string]: string};
+            }> = [];
+
+            let currentRequest: any = null;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                
+                // Look for: "Start processing HTTP request POST http://localhost:3001/cars"
+                const startRequestMatch = line.match(/Start processing HTTP request (\w+)\s+(.+)/);
+                if (startRequestMatch) {
+                    currentRequest = {
+                        method: startRequestMatch[1],
+                        url: startRequestMatch[2],
+                        requestHeaders: {},
+                        responseHeaders: {}
+                    };
+                    HttpRequestRunner.outputChannel.appendLine(`Found request: ${currentRequest.method} ${currentRequest.url}`);
+                    continue;
+                }
+
+                // Look for request body: "Following HTTP request's body (application/json):"
+                if (currentRequest && line.includes("Following HTTP request's body")) {
+                    const contentTypeMatch = line.match(/\(([^)]+)\)/);
+                    if (contentTypeMatch) {
+                        currentRequest.requestHeaders['Content-Type'] = contentTypeMatch[1];
+                    }
+                    
+                    // Next line should contain the body
+                    if (i + 1 < lines.length) {
+                        const bodyLine = lines[i + 1].trim();
+                        if (bodyLine && !bodyLine.includes('[') && !bodyLine.includes('INF]')) {
+                            currentRequest.requestBody = bodyLine;
+                            HttpRequestRunner.outputChannel.appendLine(`Found request body: ${bodyLine.substring(0, 100)}...`);
+                        }
+                    }
+                    continue;
+                }
+
+                // Look for: "Received HTTP response headers after 128.6225ms - 201"
+                const responseHeadersMatch = line.match(/Received HTTP response headers after ([\d.]+)ms - (\d+)/);
+                if (currentRequest && responseHeadersMatch) {
+                    currentRequest.duration = responseHeadersMatch[1] + 'ms';
+                    currentRequest.responseStatus = parseInt(responseHeadersMatch[2]);
+                    HttpRequestRunner.outputChannel.appendLine(`Found response: ${currentRequest.responseStatus} in ${currentRequest.duration}`);
+                    continue;
+                }
+
+                // Look for: "HTTP Response 201 (Created) was received from 'http://localhost:3001/cars'"
+                const responseStatusMatch = line.match(/HTTP Response (\d+) \(([^)]+)\) was received/);
+                if (currentRequest && responseStatusMatch) {
+                    currentRequest.responseStatus = parseInt(responseStatusMatch[1]);
+                    currentRequest.responseStatusText = responseStatusMatch[2];
+                    HttpRequestRunner.outputChannel.appendLine(`Found response status: ${currentRequest.responseStatus} ${currentRequest.responseStatusText}`);
+                    continue;
+                }
+
+                // Look for response body: "Response's body (application/json):"
+                if (currentRequest && line.includes("Response's body")) {
+                    const contentTypeMatch = line.match(/\(([^)]+)\)/);
+                    if (contentTypeMatch) {
+                        currentRequest.responseHeaders['Content-Type'] = contentTypeMatch[1];
+                    }
+                    
+                    // Next line should contain the body
+                    if (i + 1 < lines.length) {
+                        const bodyLine = lines[i + 1].trim();
+                        if (bodyLine && !bodyLine.includes('[') && !bodyLine.includes('INF]')) {
+                            currentRequest.responseBody = bodyLine;
+                            HttpRequestRunner.outputChannel.appendLine(`Found response body: ${bodyLine.substring(0, 100)}...`);
+                        }
+                    }
+                    continue;
+                }
+
+                // Look for: "End processing HTTP request after 228.6335ms - 201"
+                const endRequestMatch = line.match(/End processing HTTP request after ([\d.]+)ms - (\d+)/);
+                if (currentRequest && endRequestMatch) {
+                    currentRequest.duration = endRequestMatch[1] + 'ms';
+                    currentRequest.responseStatus = parseInt(endRequestMatch[2]);
+                    
+                    // Request is complete, add it to the list
+                    httpRequests.push(currentRequest);
+                    HttpRequestRunner.outputChannel.appendLine(`Completed request: ${currentRequest.method} ${currentRequest.url} -> ${currentRequest.responseStatus}`);
+                    currentRequest = null;
+                    continue;
+                }
+            }
+
+            // Convert parsed HTTP requests to test format
+            httpRequests.forEach((req, index) => {
+                const test: TeaPieTest = {
+                    Name: `${req.method} ${req.url}`,
+                    Status: req.responseStatus && req.responseStatus >= 200 && req.responseStatus < 400 ? 'Passed' : 'Failed',
+                    Duration: req.duration || '0ms',
+                    Request: {
+                        Method: req.method,
+                        Url: req.url,
+                        Headers: req.requestHeaders || {},
+                        Body: req.requestBody
+                    }
+                };
+
+                if (req.responseStatus) {
+                    test.Response = {
+                        StatusCode: req.responseStatus,
+                        StatusText: req.responseStatusText || (req.responseStatus >= 200 && req.responseStatus < 300 ? 'OK' : 'Error'),
+                        Headers: req.responseHeaders || {},
+                        Body: req.responseBody,
+                        Duration: req.duration || '0ms'
+                    };
+                }
+
+                testSuite.Tests.push(test);
+            });
+
+            // If no requests found, try to extract from .http file
+            if (httpRequests.length === 0) {
+                const httpFileRequests = HttpRequestRunner.parseHttpFile(filePath);
+                httpFileRequests.forEach(req => {
+                    const test: TeaPieTest = {
+                        Name: `${req.Method} ${req.Url}`,
+                        Status: 'Failed',
+                        Duration: '0ms',
+                        Request: req,
+                        ErrorMessage: 'Request was parsed from file but no execution output found'
+                    };
+                    testSuite.Tests.push(test);
+                });
+            }
+
+            testSuite.Status = testSuite.Tests.length > 0 && testSuite.Tests.every(t => t.Status === 'Passed') ? 'Passed' : 'Failed';
+            result.TestSuites.TestSuite.push(testSuite);
+            
+            return result;
+            
+        } catch (error) {
+            HttpRequestRunner.outputChannel.appendLine(`Verbose output parsing error: ${error}`);
+            
+            return {
+                TestSuites: {
+                    TestSuite: [{
+                        Name: path.basename(filePath),
+                        FilePath: filePath,
+                        Tests: [{
+                            Name: 'Parse Error',
+                            Status: 'Failed',
+                            Duration: '0s',
+                            ErrorMessage: `Failed to parse verbose output: ${error}`
+                        }],
+                        Status: 'Failed',
+                        Duration: '0s'
+                    }]
+                }
+            };
+        }
+    }
+
+    private static parseHttpOutput(stdout: string, filePath: string): TeaPieResult {
+        const result: TeaPieResult = {
+            TestSuites: {
+                TestSuite: []
+            }
+        };
+
+        try {
+            const fileName = path.basename(filePath, path.extname(filePath));
+            const lines = stdout.split('\n');
+            
+            HttpRequestRunner.outputChannel.appendLine(`Parsing HTTP output with ${lines.length} lines:`);
+            
+            const testSuite: TeaPieTestSuite = {
+                Name: fileName,
+                FilePath: filePath,
+                Tests: [],
+                Status: 'Unknown',
+                Duration: '0s'
+            };
+
+            // Parse HTTP requests from the .http file itself
+            const httpRequests = HttpRequestRunner.parseHttpFile(filePath);
+            
+            // For each HTTP request, try to find corresponding response in the output
+            httpRequests.forEach((request, index) => {
+                const test: TeaPieTest = {
+                    Name: `${request.Method} ${request.Url}`,
+                    Status: 'Completed',
+                    Duration: '0ms',
+                    Request: request
+                };
+
+                // Try to find response information in the stdout
+                const responseInfo = HttpRequestRunner.findResponseInOutput(lines, request, index);
+                if (responseInfo) {
+                    test.Response = responseInfo.response;
+                    test.Duration = responseInfo.duration;
+                    test.Status = responseInfo.response.StatusCode >= 200 && responseInfo.response.StatusCode < 400 ? 'Passed' : 'Failed';
+                } else {
+                    test.Status = 'Failed';
+                    test.ErrorMessage = 'No response found in output';
+                }
+
+                testSuite.Tests.push(test);
+            });
+
+            // If no requests found in file, create a generic one based on output
+            if (httpRequests.length === 0) {
+                const genericTest: TeaPieTest = {
+                    Name: 'HTTP Request',
+                    Status: 'Unknown',
+                    Duration: '0ms'
+                };
+
+                // Try to extract any HTTP information from stdout
+                const extractedInfo = HttpRequestRunner.extractHttpInfoFromOutput(lines);
+                if (extractedInfo) {
+                    genericTest.Request = extractedInfo.request;
+                    genericTest.Response = extractedInfo.response;
+                    genericTest.Status = extractedInfo.response?.StatusCode >= 200 && extractedInfo.response?.StatusCode < 400 ? 'Passed' : 'Failed';
+                } else {
+                    genericTest.Status = 'Failed';
+                    genericTest.ErrorMessage = 'Could not parse HTTP request/response from output';
+                }
+
+                testSuite.Tests.push(genericTest);
+            }
+
+            testSuite.Status = testSuite.Tests.every(t => t.Status === 'Passed') ? 'Passed' : 'Failed';
+            result.TestSuites.TestSuite.push(testSuite);
+            
+            return result;
+            
+        } catch (error) {
+            HttpRequestRunner.outputChannel.appendLine(`HTTP output parsing error: ${error}`);
+            
+            return {
+                TestSuites: {
+                    TestSuite: [{
+                        Name: path.basename(filePath),
+                        FilePath: filePath,
+                        Tests: [{
+                            Name: 'Parse Error',
+                            Status: 'Failed',
+                            Duration: '0s',
+                            ErrorMessage: `Failed to parse HTTP output: ${error}`
+                        }],
+                        Status: 'Failed',
+                        Duration: '0s'
+                    }]
+                }
+            };
+        }
     }
 
     private static parseStdoutOutput(stdout: string, filePath: string): TeaPieResult {
@@ -1234,6 +1523,197 @@ export class HttpRequestRunner {
                     }]
                 }
             };
+        }
+    }
+
+    private static parseHttpFile(filePath: string): Array<{Method: string, Url: string, Headers: {[key: string]: string}, Body?: string}> {
+        try {
+            const content = fs.readFileSync(filePath, 'utf8');
+            const lines = content.split('\n');
+            const requests: Array<{Method: string, Url: string, Headers: {[key: string]: string}, Body?: string}> = [];
+            
+            let currentRequest: {Method: string, Url: string, Headers: {[key: string]: string}, Body?: string} | null = null;
+            let isBody = false;
+            let bodyLines: string[] = [];
+            
+            for (const line of lines) {
+                const trimmed = line.trim();
+                
+                // Skip comments and empty lines
+                if (trimmed.startsWith('#') || trimmed.startsWith('//') || trimmed === '') {
+                    continue;
+                }
+                
+                // Check for HTTP method line
+                const methodMatch = trimmed.match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)/i);
+                if (methodMatch) {
+                    // Save previous request if exists
+                    if (currentRequest) {
+                        if (bodyLines.length > 0) {
+                            currentRequest.Body = bodyLines.join('\n');
+                        }
+                        requests.push(currentRequest);
+                    }
+                    
+                    // Start new request
+                    currentRequest = {
+                        Method: methodMatch[1].toUpperCase(),
+                        Url: methodMatch[2].trim(),
+                        Headers: {}
+                    };
+                    isBody = false;
+                    bodyLines = [];
+                    continue;
+                }
+                
+                if (currentRequest) {
+                    // Check for headers (key: value format)
+                    if (!isBody && trimmed.includes(':') && !trimmed.startsWith('{')) {
+                        const headerMatch = trimmed.match(/^([^:]+):\s*(.+)/);
+                        if (headerMatch) {
+                            currentRequest.Headers[headerMatch[1].trim()] = headerMatch[2].trim();
+                            continue;
+                        }
+                    }
+                    
+                    // If we hit a non-header line after headers, it's the body
+                    if (!isBody && trimmed !== '') {
+                        isBody = true;
+                    }
+                    
+                    if (isBody && trimmed !== '') {
+                        bodyLines.push(line);
+                    }
+                }
+            }
+            
+            // Save last request if exists
+            if (currentRequest) {
+                if (bodyLines.length > 0) {
+                    currentRequest.Body = bodyLines.join('\n');
+                }
+                requests.push(currentRequest);
+            }
+            
+            return requests;
+        } catch (error) {
+            HttpRequestRunner.outputChannel.appendLine(`Error parsing HTTP file: ${error}`);
+            return [];
+        }
+    }
+
+    private static findResponseInOutput(lines: string[], request: {Method: string, Url: string, Headers: {[key: string]: string}, Body?: string}, index: number): {response: any, duration: string} | null {
+        try {
+            // Look for response patterns in the output
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                
+                // Look for HTTP response status line
+                const statusMatch = line.match(/HTTP\/[\d.]+\s+(\d+)\s+(.+)/i);
+                if (statusMatch) {
+                    const statusCode = parseInt(statusMatch[1]);
+                    const statusText = statusMatch[2].trim();
+                    
+                    const response: any = {
+                        StatusCode: statusCode,
+                        StatusText: statusText,
+                        Headers: {},
+                        Duration: '0ms'
+                    };
+                    
+                    // Look for response headers in following lines
+                    let j = i + 1;
+                    while (j < lines.length && lines[j].trim() !== '') {
+                        const headerLine = lines[j].trim();
+                        const headerMatch = headerLine.match(/^([^:]+):\s*(.+)/);
+                        if (headerMatch) {
+                            response.Headers[headerMatch[1].trim()] = headerMatch[2].trim();
+                        }
+                        j++;
+                    }
+                    
+                    // Look for response body
+                    if (j < lines.length) {
+                        const bodyLines = [];
+                        j++; // Skip empty line
+                        while (j < lines.length && !lines[j].trim().startsWith('HTTP/')) {
+                            if (lines[j].trim() !== '') {
+                                bodyLines.push(lines[j]);
+                            }
+                            j++;
+                        }
+                        if (bodyLines.length > 0) {
+                            response.Body = bodyLines.join('\n');
+                        }
+                    }
+                    
+                    // Try to find duration
+                    const durationMatch = line.match(/(\d+)\s*ms/);
+                    if (durationMatch) {
+                        response.Duration = durationMatch[1] + 'ms';
+                    }
+                    
+                    return { response, duration: response.Duration };
+                }
+                
+                // Alternative: look for status code patterns
+                const statusCodeMatch = line.match(/(\d{3})\s+[\w\s]+/);
+                if (statusCodeMatch && parseInt(statusCodeMatch[1]) >= 100) {
+                    const statusCode = parseInt(statusCodeMatch[1]);
+                    const response: any = {
+                        StatusCode: statusCode,
+                        StatusText: statusCode >= 200 && statusCode < 300 ? 'OK' : 
+                                   statusCode >= 400 ? 'Client Error' : 'Unknown',
+                        Headers: {},
+                        Duration: '0ms'
+                    };
+                    
+                    return { response, duration: '0ms' };
+                }
+            }
+            
+            return null;
+        } catch (error) {
+            HttpRequestRunner.outputChannel.appendLine(`Error finding response in output: ${error}`);
+            return null;
+        }
+    }
+
+    private static extractHttpInfoFromOutput(lines: string[]): {request?: any, response?: any} | null {
+        try {
+            let request: any = null;
+            let response: any = null;
+            
+            for (const line of lines) {
+                const trimmed = line.trim();
+                
+                // Look for request method and URL
+                const requestMatch = trimmed.match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)/i);
+                if (requestMatch && !request) {
+                    request = {
+                        Method: requestMatch[1].toUpperCase(),
+                        Url: requestMatch[2].trim(),
+                        Headers: {}
+                    };
+                }
+                
+                // Look for response status
+                const responseMatch = trimmed.match(/HTTP\/[\d.]+\s+(\d+)\s+(.+)|(\d{3})\s+[\w\s]+/i);
+                if (responseMatch && !response) {
+                    const statusCode = parseInt(responseMatch[1] || responseMatch[3]);
+                    response = {
+                        StatusCode: statusCode,
+                        StatusText: responseMatch[2] || (statusCode >= 200 && statusCode < 300 ? 'OK' : 'Error'),
+                        Headers: {},
+                        Duration: '0ms'
+                    };
+                }
+            }
+            
+            return request || response ? { request, response } : null;
+        } catch (error) {
+            HttpRequestRunner.outputChannel.appendLine(`Error extracting HTTP info from output: ${error}`);
+            return null;
         }
     }
 }
