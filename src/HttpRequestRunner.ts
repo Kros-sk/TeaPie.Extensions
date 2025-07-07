@@ -313,7 +313,7 @@ export class HttpRequestRunner {
         if (results.TestSuites?.TestSuite) {
             results.TestSuites.TestSuite.forEach(suite => {
                 suite.Tests?.forEach((test, idx) => {
-                    const statusIcon = test.Status === 'Passed' ? '✅' : '❌';
+                    const statusText = test.Status === 'Passed' ? 'Success' : 'Fail';
                     
                     let requestHtml = '';
                     if (test.Request) {
@@ -323,9 +323,19 @@ export class HttpRequestRunner {
                                 <h4>Request</h4>
                                 <div class="method-url">
                                     <span class="method method-${test.Request.Method.toLowerCase()}">${test.Request.Method}</span>
-                                    <span class="url">${test.Request.Url}</span>
+                                    <span class="url" id="url-${idx}">${test.Request.Url}</span>
+                                    <button class="copy-btn" onclick="copyToClipboard(this, 'url-${idx}')">📋 Copy </button>
                                 </div>
-                                ${body ? `<pre class="body">${body}</pre>` : ''}
+                                ${body ? `
+                                <div class="body-container">
+                                    <div class="body-header">
+                                        <span>Request Body</span>
+                                    </div>
+                                    <div class="code-block">
+                                        <pre class="body json" id="request-${idx}">${body}</pre>
+                                        <button class="copy-btn inline-copy-btn" onclick="copyToClipboard(this, 'request-${idx}')">📋 Copy </button>
+                                    </div>
+                                </div>` : ''}
                             </div>`;
                     }
                     
@@ -341,7 +351,16 @@ export class HttpRequestRunner {
                                     <span class="status-text">${test.Response.StatusText}</span>
                                     <span class="duration">${test.Response.Duration}</span>
                                 </div>
-                                ${body ? `<pre class="body">${body}</pre>` : ''}
+                                ${body ? `
+                                <div class="body-container">
+                                    <div class="body-header">
+                                        <span>Response Body</span>
+                                    </div>
+                                    <div class="code-block">
+                                        <pre class="body json" id="response-${idx}">${body}</pre>
+                                        <button class="copy-btn inline-copy-btn" onclick="copyToClipboard(this, 'response-${idx}')">📋 Copy</button>
+                                    </div>
+                                </div>` : ''}
                             </div>`;
                     }
                     
@@ -358,7 +377,7 @@ export class HttpRequestRunner {
                         <div class="request-item">
                             <div class="request-header">
                                 <h3>${test.Name}</h3>
-                                <span class="status ${test.Status.toLowerCase()}">${statusIcon} ${test.Status}</span>
+                                <span class="status ${test.Status.toLowerCase()}">${statusText}</span>
                             </div>
                             <div class="request-content">
                                 ${requestHtml}
@@ -394,7 +413,14 @@ export class HttpRequestRunner {
         
         try {
             const parsed = JSON.parse(body);
-            return JSON.stringify(parsed, null, 2);
+            const formatted = JSON.stringify(parsed, null, 2);
+            // Add basic JSON syntax highlighting
+            return formatted
+                .replace(/"([^"]+)":/g, '<span class="json-key">"$1":</span>')
+                .replace(/:\s*"([^"]*)"/g, ': <span class="json-string">"$1"</span>')
+                .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-number">$1</span>')
+                .replace(/:\s*(true|false)/g, ': <span class="json-boolean">$1</span>')
+                .replace(/:\s*null/g, ': <span class="json-null">null</span>');
         } catch {
             return body;
         }
@@ -434,7 +460,21 @@ export class HttpRequestRunner {
             .status-success { background: #4CAF50; } .status-error { background: #F44336; }
             .status-text { font-weight: 500; flex: 1; }
             .duration { font-size: 12px; color: var(--vscode-descriptionForeground); background: var(--vscode-badge-background); padding: 2px 6px; border-radius: 3px; }
-            pre.body { background: var(--vscode-textCodeBlock-background); padding: 15px; border-radius: 6px; overflow-x: auto; font-family: monospace; font-size: 13px; margin: 10px 0 0 0; white-space: pre-wrap; border: 1px solid var(--vscode-panel-border); }
+            .body-container { margin-top: 10px; }
+            .body-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+            .body-header span { font-size: 12px; font-weight: 600; color: var(--vscode-descriptionForeground); text-transform: uppercase; }
+            .code-block { position: relative; }
+            .copy-btn { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; font-size: 11px; }
+            .copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+            .inline-copy-btn { position: absolute; top: 8px; right: 8px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+            .inline-copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+            pre.body { background: var(--vscode-textCodeBlock-background); padding: 15px; border-radius: 6px; overflow-x: auto; font-family: monospace; font-size: 13px; margin: 0; white-space: pre-wrap; border: 1px solid var(--vscode-panel-border); }
+            pre.body.json { color: var(--vscode-editor-foreground); }
+            .json .json-key { color: var(--vscode-symbolIcon-keywordForeground); }
+            .json .json-string { color: var(--vscode-symbolIcon-stringForeground); }
+            .json .json-number { color: var(--vscode-symbolIcon-numberForeground); }
+            .json .json-boolean { color: var(--vscode-symbolIcon-booleanForeground); }
+            .json .json-null { color: var(--vscode-symbolIcon-nullForeground); }
             .error-message { color: var(--vscode-terminal-ansiRed); }
             .no-results { text-align: center; padding: 60px 20px; color: var(--vscode-descriptionForeground); }
         `;
@@ -448,6 +488,27 @@ export class HttpRequestRunner {
                     const vscode = window.acquireVsCodeApi();
                     vscode.postMessage({ command: 'retry' });
                 });
+            }
+
+            function copyToClipboard(button, elementId) {
+                const element = document.getElementById(elementId);
+                if (element) {
+                    const text = element.textContent || element.innerText;
+                    navigator.clipboard.writeText(text).then(() => {
+                        const originalText = button.textContent;
+                        button.textContent = '✓ Copied';
+                        button.style.background = 'var(--vscode-terminal-ansiGreen)';
+                        setTimeout(() => {
+                            button.textContent = originalText;
+                            button.style.background = 'var(--vscode-button-secondaryBackground)';
+                        }, 1500);
+                    }).catch(() => {
+                        button.textContent = '❌ Failed';
+                        setTimeout(() => {
+                            button.textContent = '📋 Copy';
+                        }, 1500);
+                    });
+                }
             }
         `;
     }
