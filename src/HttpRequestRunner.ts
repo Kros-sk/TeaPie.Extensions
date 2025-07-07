@@ -105,6 +105,20 @@ export class HttpRequestRunner {
             
             vscode.window.showErrorMessage(errorMessage);
         }
+
+        if (HttpRequestRunner.currentPanel) {
+            // Listen for retry messages from the webview
+            HttpRequestRunner.currentPanel.webview.onDidReceiveMessage(
+                (message) => {
+                    if (message && message.command === 'retry') {
+                        // Re-run the HTTP file
+                        HttpRequestRunner.runHttpFile(uri);
+                    }
+                },
+                undefined,
+                []
+            );
+        }
     }
 
     private static async executeTeaPie(filePath: string): Promise<TeaPieResult> {
@@ -327,6 +341,24 @@ export class HttpRequestRunner {
             color: var(--vscode-textLink-foreground, #3794ff);
             font-family: 'Fira Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
             font-size: 22px;
+        }
+        .retry-btn {
+            margin-left: 18px;
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 4px;
+            padding: 2px 12px;
+            font-size: 14px;
+            font-family: inherit;
+            font-weight: 500;
+            cursor: pointer;
+            vertical-align: middle;
+            transition: background 0.2s;
+        }
+        .retry-btn:hover, .retry-btn:focus {
+            background: var(--vscode-button-hoverBackground);
+            outline: none;
         }
         .http-request-item {
             margin-bottom: 40px;
@@ -579,7 +611,9 @@ export class HttpRequestRunner {
 </head>
 <body>
     <div class="header">
-        <h1>HTTP Request Results: <span class="filename">${fileName}</span></h1>
+        <h1>HTTP Request Results: <span class="filename">${fileName}</span>
+            <button class="retry-btn" id="retry-btn" title="Retry" type="button">⟳ Retry</button>
+        </h1>
     </div>
     ${requestsHtml || '<div class="no-results"><h2>No HTTP requests found</h2><p>Make sure your .http file contains valid HTTP requests</p></div>'}
     <script>
@@ -590,6 +624,15 @@ export class HttpRequestRunner {
             parent.classList.toggle('open');
         });
     });
+    // Retry button logic
+    const retryBtn = document.getElementById('retry-btn');
+    if (retryBtn && window.acquireVsCodeApi) {
+        retryBtn.addEventListener('click', function(e) {
+            const vscode = window.acquireVsCodeApi();
+            vscode.postMessage({ command: 'retry' });
+            e.stopPropagation();
+        });
+    }
     // Copy to clipboard logic
     document.querySelectorAll('.copy-btn, .pre-copy-btn').forEach(btn => {
         btn.addEventListener('click', function(e) {
@@ -828,7 +871,9 @@ export class HttpRequestRunner {
 </head>
 <body>
     <div class="header">
-        <h1>HTTP Request Results: <span class="filename">${fileName}</span></h1>
+        <h1>HTTP Request Results: <span class="filename">${fileName}</span>
+            <button class="retry-btn" onclick="window.location.reload()" title="Retry" type="button">⟳ Retry</button>
+        </h1>
     </div>
     
     <div class="error-container">
@@ -1956,6 +2001,7 @@ export class HttpRequestRunner {
                 
                 if (currentRequest) {
                     // Check for headers (key: value format)
+                   
                     if (!isBody && trimmed.includes(':') && !trimmed.startsWith('{')) {
                         const headerMatch = trimmed.match(/^([^:]+):\s*(.+)/);
                         if (headerMatch) {
