@@ -181,33 +181,43 @@ export class HttpRequestRunner {
         if (results.TestSuites && results.TestSuites.TestSuite) {
             results.TestSuites.TestSuite.forEach(suite => {
                 if (suite.Tests) {
-                    suite.Tests.forEach(request => {
+                    suite.Tests.forEach((request, reqIdx) => {
                         let requestHtml = '';
                         if (request.Request) {
                             const headersHtml = Object.entries(request.Request.Headers || {})
-                                .map(([key, value]) => `<div class="header-item"><strong>${key}:</strong> ${value}</div>`)
+                                .map(([key, value], i) => `<div class="header-item">`
+                                    + `<span><strong>${key}:</strong> <span id="req-header-${reqIdx}-${i}">${value}</span></span>`
+                                    + `<button class="copy-btn" data-copy-target="req-header-${reqIdx}-${i}">Copy</button>`
+                                    + `</div>`)
                                 .join('');
-                            
+
                             // Format request body if it's JSON
                             let formattedRequestBody = request.Request.Body;
+                            let bodyIsJson = false;
                             if (formattedRequestBody) {
                                 try {
                                     const parsed = JSON.parse(formattedRequestBody);
                                     formattedRequestBody = JSON.stringify(parsed, null, 2);
+                                    bodyIsJson = true;
                                 } catch (e) {
                                     // Not JSON, keep as is
                                 }
                             }
-                            
+
                             requestHtml = `
-                                <div class="request-section">
-                                    <h3>Request</h3>
-                                    <div class="method-url">
-                                        <span class="method method-${request.Request.Method.toLowerCase()}">${request.Request.Method}</span>
-                                        <span class="url">${request.Request.Url}</span>
+                                <div class="collapsible request-section open">
+                                    <button class="collapsible-header" type="button">
+                                        <span class="arrow">▶</span> Request
+                                    </button>
+                                    <div class="collapsible-content">
+                                        <div class="method-url">
+                                            <span class="method method-${request.Request.Method.toLowerCase()}">${request.Request.Method}</span>
+                                            <span class="url" id="req-url-${reqIdx}">${request.Request.Url}</span>
+                                            <button class="copy-btn" data-copy-target="req-url-${reqIdx}">Copy</button>
+                                        </div>
+                                        ${headersHtml ? `<div class="headers"><h4>Headers:</h4>${headersHtml}</div>` : ''}
+                                        ${formattedRequestBody ? `<div class="body"><h4>Body:</h4><pre id="req-body-${reqIdx}" data-json="${bodyIsJson ? 'true' : ''}"><code>${formattedRequestBody}</code><button class="pre-copy-btn" data-copy-target="req-body-${reqIdx}">Copy</button></pre></div>` : ''}
                                     </div>
-                                    ${headersHtml ? `<div class="headers"><h4>Headers:</h4>${headersHtml}</div>` : ''}
-                                    ${formattedRequestBody ? `<div class="body"><h4>Body:</h4><pre>${formattedRequestBody}</pre></div>` : ''}
                                 </div>
                             `;
                         }
@@ -216,46 +226,64 @@ export class HttpRequestRunner {
                         if (request.Response) {
                             const statusClass = request.Response.StatusCode >= 200 && request.Response.StatusCode < 300 ? 'success' : 
                                                request.Response.StatusCode >= 400 ? 'error' : 'warning';
-                            
                             const responseHeadersHtml = Object.entries(request.Response.Headers || {})
-                                .map(([key, value]) => `<div class="header-item"><strong>${key}:</strong> ${value}</div>`)
+                                .map(([key, value], i) => `<div class="header-item">`
+                                    + `<span><strong>${key}:</strong> <span id="res-header-${reqIdx}-${i}">${value}</span></span>`
+                                    + `<button class="copy-btn" data-copy-target="res-header-${reqIdx}-${i}">Copy</button>`
+                                    + `</div>`)
                                 .join('');
-                            
-                            // Format response body if it's JSON
                             let formattedResponseBody = request.Response.Body;
+                            let bodyIsJson = false;
                             if (formattedResponseBody) {
                                 try {
                                     const parsed = JSON.parse(formattedResponseBody);
                                     formattedResponseBody = JSON.stringify(parsed, null, 2);
+                                    bodyIsJson = true;
                                 } catch (e) {
                                     // Not JSON, keep as is
                                 }
                             }
-                            
                             responseHtml = `
-                                <div class="response-section">
-                                    <h3>Response</h3>
-                                    <div class="status-line">
-                                        <span class="status-code status-${statusClass}">${request.Response.StatusCode}</span>
-                                        <span class="status-text">${request.Response.StatusText}</span>
-                                        <span class="duration">${request.Response.Duration}</span>
+                                <div class="collapsible response-section open">
+                                    <button class="collapsible-header" type="button">
+                                        <span class="arrow">▶</span> Response
+                                    </button>
+                                    <div class="collapsible-content">
+                                        <div class="status-line">
+                                            <span class="status-code status-${statusClass}">${request.Response.StatusCode}</span>
+                                            <span class="status-text">${request.Response.StatusText}</span>
+                                            <span class="duration">${request.Response.Duration}</span>
+                                        </div>
+                                        ${responseHeadersHtml ? `<div class="headers"><h4>Headers:</h4>${responseHeadersHtml}</div>` : ''}
+                                        ${formattedResponseBody ? `<div class="body"><h4>Body:</h4><pre id="res-body-${reqIdx}" data-json="${bodyIsJson ? 'true' : ''}"><code>${formattedResponseBody}</code><button class="pre-copy-btn" data-copy-target="res-body-${reqIdx}">Copy</button></pre></div>` : ''}
                                     </div>
-                                    ${responseHeadersHtml ? `<div class="headers"><h4>Headers:</h4>${responseHeadersHtml}</div>` : ''}
-                                    ${formattedResponseBody ? `<div class="body"><h4>Body:</h4><pre>${formattedResponseBody}</pre></div>` : ''}
                                 </div>
                             `;
                         }
                         
                         let errorHtml = '';
                         if (request.ErrorMessage) {
-                            errorHtml = `<div class="error-section"><h3>Error</h3><pre class="error-message">${request.ErrorMessage}</pre></div>`;
+                            errorHtml = `
+                                <div class="collapsible error-section open">
+                                    <button class="collapsible-header" type="button">
+                                        <span class="arrow">▶</span> Error
+                                    </button>
+                                    <div class="collapsible-content">
+                                        <pre class="error-message" id="err-msg-${reqIdx}">${request.ErrorMessage}</pre>
+                                        <button class="copy-btn" data-copy-target="err-msg-${reqIdx}">Copy</button>
+                                    </div>
+                                </div>
+                            `;
                         }
                         
                         requestsHtml += `
                             <div class="http-request-item">
                                 <div class="request-header">
                                     <h2>${request.Name}</h2>
-                                    <span class="request-status ${request.Status?.toLowerCase()}">${request.Status}</span>
+                                    <div class="request-status ${request.Status?.toLowerCase()}">
+                                        <span class="status-icon">${request.Status === 'Passed' ? '✅' : request.Status === 'Failed' ? '❌' : '⚙️'}</span>
+                                        ${request.Status === 'Passed' ? 'Success' : request.Status === 'Failed' ? 'Failed' : request.Status}
+                                    </div>
                                 </div>
                                 <div class="request-response-container">
                                     ${requestHtml}
@@ -284,19 +312,22 @@ export class HttpRequestRunner {
             margin: 0;
             padding: 20px;
         }
-        
         .header {
             margin-bottom: 30px;
             padding-bottom: 15px;
             border-bottom: 1px solid var(--vscode-panel-border);
         }
-        
         .header h1 {
             margin: 0;
             color: var(--vscode-foreground);
             font-size: 24px;
         }
-        
+        .filename {
+            font-style: italic;
+            color: var(--vscode-textLink-foreground, #3794ff);
+            font-family: 'Fira Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 22px;
+        }
         .http-request-item {
             margin-bottom: 40px;
             border: 1px solid var(--vscode-panel-border);
@@ -304,7 +335,6 @@ export class HttpRequestRunner {
             overflow: hidden;
             background-color: var(--vscode-editor-background);
         }
-        
         .request-header {
             display: flex;
             justify-content: space-between;
@@ -312,55 +342,87 @@ export class HttpRequestRunner {
             padding: 15px 20px;
             background-color: var(--vscode-editor-inactiveSelectionBackground);
             border-bottom: 1px solid var(--vscode-panel-border);
+            position: sticky;
+            top: 0;
+            z-index: 2;
         }
-        
         .request-header h2 {
             margin: 0;
             font-size: 16px;
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        
+        .status-icon {
+            font-size: 16px;
+            margin-right: 4px;
+        }
         .request-status {
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 11px;
             font-weight: bold;
             text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
-        
         .request-status.passed, .request-status.completed {
             background-color: var(--vscode-terminal-ansiGreen);
             color: white;
         }
-        
         .request-status.failed {
             background-color: var(--vscode-terminal-ansiRed);
             color: white;
         }
-        
         .request-response-container {
             padding: 0;
         }
-        
-        .request-section, .response-section, .error-section {
-            margin: 0;
-            padding: 20px;
+        .collapsible {
             border-bottom: 1px solid var(--vscode-panel-border);
         }
-        
-        .request-section:last-child, .response-section:last-child, .error-section:last-child {
-            border-bottom: none;
-        }
-        
-        .request-section h3, .response-section h3, .error-section h3 {
-            margin: 0 0 15px 0;
+        .collapsible-header {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
             font-size: 14px;
             font-weight: 600;
             color: var(--vscode-foreground);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            background: none;
+            border: none;
+            width: 100%;
+            padding: 12px 0 0 24px; /* top, right, bottom, left */
+            margin-bottom: 8px;
         }
-        
+        .collapsible-content {
+            display: none;
+            padding: 16px 24px 20px 24px; /* top, right, bottom, left */
+        }
+        .collapsible.open .collapsible-content {
+            display: block;
+        }
+        .collapsible.open .arrow {
+            transform: rotate(90deg);
+        }
+        .arrow {
+            transition: transform 0.2s;
+            font-size: 12px;
+        }
+        .copy-btn {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 11px;
+            margin-left: 8px;
+            cursor: pointer;
+        }
+        .copy-btn:active {
+            background: var(--vscode-button-hoverBackground);
+        }
         .method-url {
             display: flex;
             align-items: center;
@@ -370,7 +432,6 @@ export class HttpRequestRunner {
             background-color: var(--vscode-textCodeBlock-background);
             border-radius: 6px;
         }
-        
         .method {
             padding: 4px 8px;
             border-radius: 4px;
@@ -380,7 +441,6 @@ export class HttpRequestRunner {
             min-width: 50px;
             text-align: center;
         }
-        
         .method-get { background-color: #4CAF50; color: white; }
         .method-post { background-color: #FF9800; color: white; }
         .method-put { background-color: #2196F3; color: white; }
@@ -388,7 +448,6 @@ export class HttpRequestRunner {
         .method-patch { background-color: #9C27B0; color: white; }
         .method-head { background-color: #607D8B; color: white; }
         .method-options { background-color: #795548; color: white; }
-        
         .url {
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             font-size: 14px;
@@ -396,7 +455,6 @@ export class HttpRequestRunner {
             word-break: break-all;
             flex: 1;
         }
-        
         .status-line {
             display: flex;
             align-items: center;
@@ -406,7 +464,6 @@ export class HttpRequestRunner {
             background-color: var(--vscode-textCodeBlock-background);
             border-radius: 6px;
         }
-        
         .status-code {
             padding: 4px 8px;
             border-radius: 4px;
@@ -415,16 +472,13 @@ export class HttpRequestRunner {
             min-width: 40px;
             text-align: center;
         }
-        
         .status-success { background-color: #4CAF50; color: white; }
         .status-warning { background-color: #FF9800; color: white; }
         .status-error { background-color: #F44336; color: white; }
-        
         .status-text {
             font-weight: 500;
             flex: 1;
         }
-        
         .duration {
             font-size: 12px;
             color: var(--vscode-descriptionForeground);
@@ -432,11 +486,9 @@ export class HttpRequestRunner {
             padding: 2px 6px;
             border-radius: 3px;
         }
-        
         .headers {
             margin: 15px 0;
         }
-        
         .headers h4 {
             margin: 0 0 8px 0;
             font-size: 12px;
@@ -445,7 +497,6 @@ export class HttpRequestRunner {
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
         .header-item {
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             font-size: 12px;
@@ -454,12 +505,13 @@ export class HttpRequestRunner {
             background-color: var(--vscode-textCodeBlock-background);
             border-radius: 3px;
             word-break: break-all;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
-        
         .body {
             margin: 15px 0 0 0;
         }
-        
         .body h4 {
             margin: 0 0 8px 0;
             font-size: 12px;
@@ -468,7 +520,6 @@ export class HttpRequestRunner {
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
         pre {
             background-color: var(--vscode-textCodeBlock-background);
             padding: 15px;
@@ -480,18 +531,46 @@ export class HttpRequestRunner {
             white-space: pre-wrap;
             word-wrap: break-word;
             border: 1px solid var(--vscode-panel-border);
+            position: relative; /* for absolute positioning of copy btn */
         }
-        
+        pre code {
+            background: transparent !important;
+            padding: 0;
+            border: none;
+            color: inherit;
+            font-size: inherit;
+            font-family: inherit;
+            display: block;
+        }
+        .pre-copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 11px;
+            cursor: pointer;
+            z-index: 2;
+        }
+        .pre-copy-btn:active {
+            background: var(--vscode-button-hoverBackground);
+        }
+        .json-key { color: #d19a66; }
+        .json-string { color: #98c379; }
+        .json-number { color: #61afef; }
+        .json-boolean { color: #e06c75; }
+        .json-null { color: #c678dd; }
         .error-message {
             color: var(--vscode-terminal-ansiRed);
         }
-        
         .no-results {
             text-align: center;
             padding: 60px 20px;
             color: var(--vscode-descriptionForeground);
         }
-
         .no-results h2 {
             margin: 0 0 10px 0;
             color: var(--vscode-foreground);
@@ -500,10 +579,70 @@ export class HttpRequestRunner {
 </head>
 <body>
     <div class="header">
-        <h1>HTTP Requests: ${fileName}</h1>
+        <h1>HTTP Request Results: <span class="filename">${fileName}</span></h1>
     </div>
-    
     ${requestsHtml || '<div class="no-results"><h2>No HTTP requests found</h2><p>Make sure your .http file contains valid HTTP requests</p></div>'}
+    <script>
+    // Collapsible logic
+    document.querySelectorAll('.collapsible-header').forEach(header => {
+        header.addEventListener('click', function() {
+            const parent = header.parentElement;
+            parent.classList.toggle('open');
+        });
+    });
+    // Copy to clipboard logic
+    document.querySelectorAll('.copy-btn, .pre-copy-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            const target = btn.getAttribute('data-copy-target');
+            if (target) {
+                const el = document.getElementById(target);
+                if (el) {
+                    let textToCopy = '';
+                    // If it's a pre with code, only copy the code's text
+                    if (el.tagName === 'PRE') {
+                        const code = el.querySelector('code');
+                        textToCopy = code ? code.innerText : el.innerText;
+                    } else {
+                        textToCopy = el.innerText;
+                    }
+                    navigator.clipboard.writeText(textToCopy);
+                    btn.innerText = 'Copied!';
+                    setTimeout(() => btn.innerText = 'Copy', 1000);
+                }
+            }
+            e.stopPropagation();
+        });
+    });
+    // Syntax highlight JSON
+    function syntaxHighlight(json) {
+        if (!json) return '';
+        json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+            let cls = 'json-number';
+            if (/^"/.test(match)) {
+                if (/:$/.test(match)) {
+                    cls = 'json-key';
+                } else {
+                    cls = 'json-string';
+                }
+            } else if (/true|false/.test(match)) {
+                cls = 'json-boolean';
+            } else if (/null/.test(match)) {
+                cls = 'json-null';
+            }
+            return '<span class="' + cls + '">' + match + '</span>';
+        });
+    }
+    document.querySelectorAll('pre[data-json]').forEach(pre => {
+        const code = pre.querySelector('code');
+        if (code) {
+            try {
+                const json = JSON.parse(code.innerText);
+                code.innerHTML = syntaxHighlight(JSON.stringify(json, null, 2));
+            } catch {}
+        }
+    });
+    </script>
 </body>
 </html>`;
     }
@@ -536,8 +675,14 @@ export class HttpRequestRunner {
         .header h1 {
             margin: 0;
             color: var(--vscode-foreground);
+            font-size: 24px;
         }
-        
+        .filename {
+            font-style: italic;
+            color: var(--vscode-textLink-foreground, #3794ff);
+            font-family: 'Fira Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 22px;
+        }
         .loading-container {
             display: flex;
             flex-direction: column;
@@ -577,7 +722,7 @@ export class HttpRequestRunner {
 </head>
 <body>
     <div class="header">
-        <h1>HTTP Request Results: ${fileName}</h1>
+        <h1>HTTP Request Results: <span class="filename">${fileName}</span></h1>
     </div>
     
     <div class="loading-container">
@@ -617,8 +762,14 @@ export class HttpRequestRunner {
         .header h1 {
             margin: 0;
             color: var(--vscode-foreground);
+            font-size: 24px;
         }
-        
+        .filename {
+            font-style: italic;
+            color: var(--vscode-textLink-foreground, #3794ff);
+            font-family: 'Fira Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 22px;
+        }
         .error-container {
             padding: 30px;
             text-align: center;
@@ -677,7 +828,7 @@ export class HttpRequestRunner {
 </head>
 <body>
     <div class="header">
-        <h1>HTTP Request Results: ${fileName}</h1>
+        <h1>HTTP Request Results: <span class="filename">${fileName}</span></h1>
     </div>
     
     <div class="error-container">
@@ -1412,7 +1563,7 @@ export class HttpRequestRunner {
                             StatusCode: 200,
                             StatusText: 'OK',
                             Headers: {},
-                            Duration: duration
+                            Duration: '0ms'
                         };
                     }
                     
@@ -1879,7 +2030,7 @@ export class HttpRequestRunner {
                             }
                             j++;
                         }
-                        if (bodyLines.length > 0) {
+                        if ( bodyLines.length > 0) {
                             response.Body = bodyLines.join('\n');
                         }
                     }
@@ -1909,6 +2060,7 @@ export class HttpRequestRunner {
                 }
             }
             
+                       
             return null;
         } catch (error) {
             HttpRequestRunner.outputChannel.appendLine(`Error finding response in output: ${error}`);
