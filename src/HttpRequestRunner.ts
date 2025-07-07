@@ -128,9 +128,40 @@ export class HttpRequestRunner {
             // Parse stdout directly since it contains all the information we need
             return HttpRequestRunner.parseStdoutOutput(stdout, filePath);
 
-        } catch (error) {
+        } catch (error: any) {
             HttpRequestRunner.outputChannel.appendLine(`TeaPie execution error: ${error}`);
-            throw error;
+            
+            // Don't throw the error - instead create a failed test result
+            // This way we can still show the webview with error information
+            const errorOutput = error.stdout || error.message || error.toString();
+            HttpRequestRunner.outputChannel.appendLine(`Error output: ${errorOutput}`);
+            
+            // Try to parse the error output if it contains useful information
+            if (error.stdout) {
+                try {
+                    return HttpRequestRunner.parseStdoutOutput(error.stdout, filePath);
+                } catch (parseError) {
+                    HttpRequestRunner.outputChannel.appendLine(`Failed to parse error stdout: ${parseError}`);
+                }
+            }
+            
+            // Create a basic failed result
+            return {
+                TestSuites: {
+                    TestSuite: [{
+                        Name: path.basename(filePath, path.extname(filePath)),
+                        FilePath: filePath,
+                        Tests: [{
+                            Name: 'Test Execution Failed',
+                            Status: 'Failed',
+                            Duration: '0ms',
+                            ErrorMessage: error.message || error.toString()
+                        }],
+                        Status: 'Failed',
+                        Duration: '0s'
+                    }]
+                }
+            };
         }
     }
 
@@ -452,6 +483,12 @@ export class HttpRequestRunner {
             const fileName = path.basename(filePath, path.extname(filePath));
             const lines = stdout.split('\n');
             
+            // Debug: log all lines to see what we're working with
+            HttpRequestRunner.outputChannel.appendLine(`Parsing stdout with ${lines.length} lines:`);
+            lines.forEach((line, index) => {
+                HttpRequestRunner.outputChannel.appendLine(`[${index}]: "${line.trim()}"`);
+            });
+            
             const testSuite: TeaPieTestSuite = {
                 Name: fileName,
                 FilePath: filePath,
@@ -462,9 +499,12 @@ export class HttpRequestRunner {
 
             let currentTest: TeaPieTest | null = null;
             let isSuccess = false;
+            let foundTestNumbers: number[] = [];
+            let testMap: Map<number, TeaPieTest> = new Map(); // Track tests by number to avoid duplicates
+            let nonNumberedTests: TeaPieTest[] = []; // Collect non-numbered tests separately
 
-            for (const line of lines) {
-                const trimmedLine = line.trim();
+            for (let i = 0; i < lines.length; i++) {
+                const trimmedLine = lines[i].trim();
                 
                 // Look for test execution start
                 const testStartMatch = trimmedLine.match(/Running test: '(.+?)' \((.+?)\)/);
@@ -495,44 +535,284 @@ export class HttpRequestRunner {
                     }
                 }
                 
-                // Look for test completion
-                const testPassMatch = trimmedLine.match(/Test Passed: '(.+?)' in (\d+) ms/);
-                if (testPassMatch && currentTest) {
-                    currentTest.Status = 'Passed';
-                    currentTest.Duration = testPassMatch[2] + 'ms';
+                // Look for test execution with pattern: Running test: '[1] Status code should match...'
+                const testRunningMatch = trimmedLine.match(/Running test: '\[(\d+)\]\s+(.+?)'\s+\(/);
+                if (testRunningMatch) {
+                    const testNumber = parseInt(testRunningMatch[1]);
+                    const testDescription = testRunningMatch[2];
+                    foundTestNumbers.push(testNumber);
                     
-                    // For successful tests, we can create a mock successful response
-                    if (currentTest.Request) {
-                        currentTest.Response = {
+                    HttpRequestRunner.outputChannel.appendLine(`Found running test [${testNumber}]: ${testDescription}`);
+                    
+                    const test: TeaPieTest = {
+                        Name: `[${testNumber}] ${testDescription}`,
+                        Status: 'Running',
+                        Duration: '0ms'
+                    };
+                    
+                    // Extract HTTP method and URL for this test
+                    try {
+                        const httpContent = fs.readFileSync(filePath, 'utf8');
+                        const httpLines = httpContent.split('\n');
+                        for (const httpLine of httpLines) {
+                            const methodMatch = httpLine.trim().match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)/i);
+                            if (methodMatch) {
+                                test.Request = {
+                                    Method: methodMatch[1].toUpperCase(),
+                                    Url: methodMatch[2].trim(),
+                                    Headers: {}
+                                };
+                                break;
+                            }
+                        }
+                    } catch (error) {
+                        HttpRequestRunner.outputChannel.appendLine(`Error reading HTTP file: ${error}`);
+                    }
+                    
+                    testMap.set(testNumber, test);
+                    continue;
+                }
+                
+                // Look for test failure with pattern: Test '[1] Status code...' failed: after 3 ms
+                const testFailedMatch = trimmedLine.match(/Test '\[(\d+)\]\s+(.+?)'\s+failed:\s+after\s+(\d+)\s+ms/);
+                if (testFailedMatch) {
+                    const testNumber = parseInt(testFailedMatch[1]);
+                    const testDescription = testFailedMatch[2];
+                    const duration = testFailedMatch[3] + 'ms';
+                    
+                    if (!foundTestNumbers.includes(testNumber)) {
+                        foundTestNumbers.push(testNumber);
+                    }
+                    
+                    HttpRequestRunner.outputChannel.appendLine(`Found failed test [${testNumber}]: ${testDescription}`);
+                    
+                    // Update existing test or create new one
+                    let failedTest = testMap.get(testNumber);
+                    if (!failedTest) {
+                        failedTest = {
+                            Name: `[${testNumber}] ${testDescription}`,
+                            Status: 'Failed',
+                            Duration: duration
+                        };
+                        
+                        // Extract HTTP method and URL for this test
+                        try {
+                            const httpContent = fs.readFileSync(filePath, 'utf8');
+                            const httpLines = httpContent.split('\n');
+                            for (const httpLine of httpLines) {
+                                const methodMatch = httpLine.trim().match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)/i);
+                                if (methodMatch) {
+                                    failedTest.Request = {
+                                        Method: methodMatch[1].toUpperCase(),
+                                        Url: methodMatch[2].trim(),
+                                        Headers: {}
+                                    };
+                                    break;
+                                }
+                            }
+                        } catch (error) {
+                            HttpRequestRunner.outputChannel.appendLine(`Error reading HTTP file: ${error}`);
+                        }
+                    } else {
+                        // Update existing test
+                        failedTest.Status = 'Failed';
+                        failedTest.Duration = duration;
+                    }
+                    
+                    // Look for reason on next line
+                    if (i + 1 < lines.length) {
+                        const reasonMatch = lines[i + 1].trim().match(/Reason:\s+(.+)/);
+                        if (reasonMatch) {
+                            failedTest.ErrorMessage = reasonMatch[1];
+                        }
+                    }
+                    
+                    testMap.set(testNumber, failedTest);
+                    isSuccess = false;
+                    continue;
+                }
+                
+                // Look for test completion with pattern: Test Passed: '[2] Response should have body.' in 0 ms
+                const testPassMatch = trimmedLine.match(/Test Passed: '\[(\d+)\]\s+(.+?)'\s+in\s+(\d+)\s+ms/);
+                if (testPassMatch) {
+                    const testNumber = parseInt(testPassMatch[1]);
+                    const testDescription = testPassMatch[2];
+                    const duration = testPassMatch[3] + 'ms';
+                    
+                    if (!foundTestNumbers.includes(testNumber)) {
+                        foundTestNumbers.push(testNumber);
+                    }
+                    
+                    HttpRequestRunner.outputChannel.appendLine(`Found passed test [${testNumber}]: ${testDescription}`);
+                    
+                    // Update existing test or create new one
+                    let passedTest = testMap.get(testNumber);
+                    if (!passedTest) {
+                        passedTest = {
+                            Name: `[${testNumber}] ${testDescription}`,
+                            Status: 'Passed',
+                            Duration: duration
+                        };
+                        
+                        // Extract HTTP method and URL for this test
+                        try {
+                            const httpContent = fs.readFileSync(filePath, 'utf8');
+                            const httpLines = httpContent.split('\n');
+                            for (const httpLine of httpLines) {
+                                const methodMatch = httpLine.trim().match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)/i);
+                                if (methodMatch) {
+                                    passedTest.Request = {
+                                        Method: methodMatch[1].toUpperCase(),
+                                        Url: methodMatch[2].trim(),
+                                        Headers: {}
+                                    };
+                                    break;
+                                }
+                            }
+                        } catch (error) {
+                            HttpRequestRunner.outputChannel.appendLine(`Error reading HTTP file: ${error}`);
+                        }
+                    } else {
+                        // Update existing test
+                        passedTest.Status = 'Passed';
+                        passedTest.Duration = duration;
+                    }
+                    
+                    // Add response for passed tests
+                    if (passedTest.Request) {
+                        passedTest.Response = {
                             StatusCode: 200,
                             StatusText: 'OK',
                             Headers: {},
-                            Duration: currentTest.Duration
+                            Duration: duration
                         };
                     }
                     
-                    testSuite.Tests.push(currentTest);
-                    currentTest = null;
+                    testMap.set(testNumber, passedTest);
                     isSuccess = true;
+                    continue;
                 }
                 
-                const testFailMatch = trimmedLine.match(/Test Failed: '(.+?)' in (\d+) ms/);
-                if (testFailMatch && currentTest) {
-                    currentTest.Status = 'Failed';
-                    currentTest.Duration = testFailMatch[2] + 'ms';
-                    testSuite.Tests.push(currentTest);
-                    currentTest = null;
+                // Look for non-numbered tests (like CSX script tests)
+                const testPassMatchOld = trimmedLine.match(/Test Passed: '(.+?)' in (\d+) ms/);
+                if (testPassMatchOld && !testPassMatchOld[1].includes('[')) {
+                    const testName = testPassMatchOld[1];
+                    const duration = testPassMatchOld[2] + 'ms';
+                    
+                    HttpRequestRunner.outputChannel.appendLine(`Found non-numbered passed test: ${testName}`);
+                    
+                    const passedTest: TeaPieTest = {
+                        Name: testName,
+                        Status: 'Passed',
+                        Duration: duration
+                    };
+                    
+                    // Extract HTTP method and URL for this test
+                    try {
+                        const httpContent = fs.readFileSync(filePath, 'utf8');
+                        const httpLines = httpContent.split('\n');
+                        for (const httpLine of httpLines) {
+                            const methodMatch = httpLine.trim().match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)/i);
+                            if (methodMatch) {
+                                passedTest.Request = {
+                                    Method: methodMatch[1].toUpperCase(),
+                                    Url: methodMatch[2].trim(),
+                                    Headers: {}
+                                };
+                                passedTest.Response = {
+                                    StatusCode: 200,
+                                    StatusText: 'OK',
+                                    Headers: {},
+                                    Duration: duration
+                                };
+                                break;
+                            }
+                        }
+                    } catch (error) {
+                        HttpRequestRunner.outputChannel.appendLine(`Error reading HTTP file: ${error}`);
+                    }
+                    
+                    nonNumberedTests.push(passedTest);
+                    isSuccess = true;
+                    continue;
                 }
                 
-                // Look for overall success
+                // Look for overall success/failure
                 if (trimmedLine.includes('Success! All') && trimmedLine.includes('tests passed')) {
                     isSuccess = true;
                 }
                 
-                // Look for overall failure
                 if (trimmedLine.includes('Failed:') || trimmedLine.includes('tests failed')) {
                     isSuccess = false;
                 }
+            }
+            
+            // Convert testMap to sorted array and add to testSuite first (numbered tests)
+            const sortedTests = Array.from(testMap.entries())
+                .sort((a, b) => a[0] - b[0]) // Sort by test number
+                .map(([_, test]) => test);
+            
+            testSuite.Tests.push(...sortedTests);
+            
+            // Then add non-numbered tests at the end
+            testSuite.Tests.push(...nonNumberedTests);
+            
+            // Check for missing test numbers - if we have [2], [3], [4] but no [1], create a failed [1]
+            if (foundTestNumbers.length > 0) {
+                const minTest = Math.min(...foundTestNumbers);
+                const maxTest = Math.max(...foundTestNumbers);
+                
+                for (let testNum = 1; testNum <= maxTest; testNum++) {
+                    if (!foundTestNumbers.includes(testNum)) {
+                        HttpRequestRunner.outputChannel.appendLine(`Missing test [${testNum}] - creating failed test`);
+                        
+                        // Try to extract HTTP method and URL
+                        let request: any = {
+                            Method: 'GET',
+                            Url: 'Unknown',
+                            Headers: {}
+                        };
+                        
+                        try {
+                            const httpContent = fs.readFileSync(filePath, 'utf8');
+                            const httpLines = httpContent.split('\n');
+                            for (const httpLine of httpLines) {
+                                const methodMatch = httpLine.trim().match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)/i);
+                                if (methodMatch) {
+                                    request = {
+                                        Method: methodMatch[1].toUpperCase(),
+                                        Url: methodMatch[2].trim(),
+                                        Headers: {}
+                                    };
+                                    break;
+                                }
+                            }
+                        } catch (error) {
+                            HttpRequestRunner.outputChannel.appendLine(`Error reading HTTP file for missing test: ${error}`);
+                        }
+                        
+                        const missingTest: TeaPieTest = {
+                            Name: `[${testNum}] Test Failed (not found in output)`,
+                            Status: 'Failed',
+                            Duration: '0ms',
+                            Request: request,
+                            ErrorMessage: 'This test failed and was not reported in the output. Check the console for details.'
+                        };
+                        
+                        testSuite.Tests.unshift(missingTest); // Add at the beginning
+                        isSuccess = false;
+                    }
+                }
+                
+                // Re-sort tests after adding missing ones
+                testSuite.Tests.sort((a, b) => {
+                    const aMatch = a.Name.match(/^\[(\d+)\]/);
+                    const bMatch = b.Name.match(/^\[(\d+)\]/);
+                    if (aMatch && bMatch) {
+                        return parseInt(aMatch[1]) - parseInt(bMatch[1]);
+                    }
+                    return 0;
+                });
             }
             
             // If no specific tests found but we have success indication, create a generic successful test
@@ -573,6 +853,52 @@ export class HttpRequestRunner {
                         Headers: {},
                         Duration: '0ms'
                     }
+                });
+            }
+            
+            // If no tests found and no success indication, but we have output, create a failed test
+            if (testSuite.Tests.length === 0 && !isSuccess && stdout.trim().length > 0) {
+                // Try to extract HTTP method and URL from the file
+                let request: any = {
+                    Method: 'GET',
+                    Url: 'Unknown',
+                    Headers: {}
+                };
+                
+                try {
+                    const httpContent = fs.readFileSync(filePath, 'utf8');
+                    const httpLines = httpContent.split('\n');
+                    for (const httpLine of httpLines) {
+                        const methodMatch = httpLine.trim().match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)/i);
+                        if (methodMatch) {
+                            request = {
+                                Method: methodMatch[1].toUpperCase(),
+                                Url: methodMatch[2].trim(),
+                                Headers: {}
+                            };
+                            break;
+                        }
+                    }
+                } catch (error) {
+                    HttpRequestRunner.outputChannel.appendLine(`Error reading HTTP file for failed test: ${error}`);
+                }
+                
+                // Look for error messages in the stdout
+                const errorLines = lines.filter(line => 
+                    line.includes('[ERR]') || 
+                    line.includes('[ERROR]') || 
+                    line.includes('Failed:') ||
+                    line.includes('Error:')
+                );
+                
+                const errorMessage = errorLines.length > 0 ? errorLines.join('\n') : 'Test execution failed - check output for details';
+                
+                testSuite.Tests.push({
+                    Name: 'HTTP Request Test',
+                    Status: 'Failed',
+                    Duration: '0ms',
+                    Request: request,
+                    ErrorMessage: errorMessage
                 });
             }
             
