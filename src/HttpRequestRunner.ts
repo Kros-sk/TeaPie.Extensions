@@ -292,9 +292,8 @@ export class HttpRequestRunner {
 </head>
 <body>
     <div class="header">
-        <h1>HTTP Request Results: <span class="filename">${fileName}</span>
-            <button class="retry-btn" id="retry-btn">⟳ Retry</button>
-        </h1>
+        <h1>HTTP Request Results: <span class="filename">${fileName}</span></h1>
+        <button class="retry-btn" id="retry-btn">Retry</button>
     </div>
     <div class="error-container">
         <div class="error-icon">⚠️</div>
@@ -398,9 +397,8 @@ export class HttpRequestRunner {
 </head>
 <body>
     <div class="header">
-        <h1>HTTP Request Results: <span class="filename">${fileName}</span>
-            <button class="retry-btn" id="retry-btn">⟳ Retry</button>
-        </h1>
+        <h1>HTTP Request Results: <span class="filename">${fileName}</span></h1>
+        <button class="retry-btn" id="retry-btn">Retry</button>
     </div>
     ${requestsHtml || '<div class="no-results"><h2>No HTTP requests found</h2></div>'}
     <script>${this.getScript()}</script>
@@ -429,10 +427,10 @@ export class HttpRequestRunner {
     private static getStyles(): string {
         return `
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
-            .header { margin-bottom: 30px; padding-bottom: 15px; border-bottom: 1px solid var(--vscode-panel-border); }
+            .header { margin-bottom: 30px; padding-bottom: 15px; border-bottom: 1px solid var(--vscode-panel-border); display: flex; justify-content: space-between; align-items: center; }
             .header h1 { margin: 0; font-size: 24px; }
             .filename { font-style: italic; color: var(--vscode-textLink-foreground); font-family: monospace; }
-            .retry-btn { margin-left: 15px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; padding: 8px 12px; cursor: pointer; }
+            .retry-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 500; }
             .retry-btn:hover { background: var(--vscode-button-hoverBackground); }
             .loading-container { text-align: center; padding: 60px 20px; }
             .spinner { width: 40px; height: 40px; border: 4px solid var(--vscode-panel-border); border-top: 4px solid var(--vscode-button-background); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
