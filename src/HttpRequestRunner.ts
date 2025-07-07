@@ -737,14 +737,31 @@ export class HttpRequestRunner {
                         currentRequest.requestHeaders['Content-Type'] = contentTypeMatch[1];
                     }
                     
-                    // Next line should contain the body
-                    if (i + 1 < lines.length) {
-                        const bodyLine = lines[i + 1].trim();
-                        if (bodyLine && !bodyLine.includes('[') && !bodyLine.includes('INF]')) {
-                            currentRequest.requestBody = bodyLine;
-                            HttpRequestRunner.outputChannel.appendLine(`Found request body: ${bodyLine.substring(0, 100)}...`);
+                    // Read all lines until we hit another log entry or empty line
+                    const bodyLines: string[] = [];
+                    let j = i + 1;
+                    while (j < lines.length) {
+                        const bodyLine = lines[j];
+                        // Stop if we hit another log entry (starts with [timestamp])
+                        if (bodyLine.trim().match(/^\[[\d:]+\s+\w+\]/)) {
+                            break;
                         }
+                        // Stop if we hit "INF] Sending HTTP request"
+                        if (bodyLine.includes('INF] Sending HTTP request')) {
+                            break;
+                        }
+                        bodyLines.push(bodyLine);
+                        j++;
                     }
+                    
+                    if (bodyLines.length > 0) {
+                        // Join all body lines and clean up
+                        currentRequest.requestBody = bodyLines.join('\n').trim();
+                        HttpRequestRunner.outputChannel.appendLine(`Found request body (${bodyLines.length} lines): ${currentRequest.requestBody.substring(0, 100)}...`);
+                    }
+                    
+                    // Move index forward to skip processed lines
+                    i = j - 1;
                     continue;
                 }
 
@@ -773,14 +790,31 @@ export class HttpRequestRunner {
                         currentRequest.responseHeaders['Content-Type'] = contentTypeMatch[1];
                     }
                     
-                    // Next line should contain the body
-                    if (i + 1 < lines.length) {
-                        const bodyLine = lines[i + 1].trim();
-                        if (bodyLine && !bodyLine.includes('[') && !bodyLine.includes('INF]')) {
-                            currentRequest.responseBody = bodyLine;
-                            HttpRequestRunner.outputChannel.appendLine(`Found response body: ${bodyLine.substring(0, 100)}...`);
+                    // Read all lines until we hit another log entry
+                    const bodyLines: string[] = [];
+                    let j = i + 1;
+                    while (j < lines.length) {
+                        const bodyLine = lines[j];
+                        // Stop if we hit another log entry (starts with [timestamp])
+                        if (bodyLine.trim().match(/^\[[\d:]+\s+\w+\]/)) {
+                            break;
                         }
+                        // Stop if we hit "INF] End processing"
+                        if (bodyLine.includes('INF] End processing')) {
+                            break;
+                        }
+                        bodyLines.push(bodyLine);
+                        j++;
                     }
+                    
+                    if (bodyLines.length > 0) {
+                        // Join all body lines and clean up
+                        currentRequest.responseBody = bodyLines.join('\n').trim();
+                        HttpRequestRunner.outputChannel.appendLine(`Found response body (${bodyLines.length} lines): ${currentRequest.responseBody.substring(0, 100)}...`);
+                    }
+                    
+                    // Move index forward to skip processed lines
+                    i = j - 1;
                     continue;
                 }
 
