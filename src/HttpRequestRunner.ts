@@ -57,18 +57,10 @@ export class HttpRequestRunner {
         // Store the current file URI
         HttpRequestRunner.currentFile = uri;
 
-        try {
-            // Run TeaPie and get results
-            const results = await HttpRequestRunner.executeTeaPie(uri.fsPath);
-            
-            // If we already have a panel, show it
-            if (HttpRequestRunner.currentPanel) {
-                HttpRequestRunner.currentPanel.reveal(column === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One);
-                HttpRequestRunner.currentPanel.webview.html = HttpRequestRunner.getWebviewContent(results, uri);
-                return;
-            }
-
-            // Otherwise, create a new panel
+        // Create or show the panel immediately with loading state
+        if (HttpRequestRunner.currentPanel) {
+            HttpRequestRunner.currentPanel.reveal(column === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One);
+        } else {
             HttpRequestRunner.currentPanel = vscode.window.createWebviewPanel(
                 'httpRequestResults',
                 'HTTP Request Results',
@@ -79,8 +71,6 @@ export class HttpRequestRunner {
                 }
             );
 
-            HttpRequestRunner.currentPanel.webview.html = HttpRequestRunner.getWebviewContent(results, uri);
-
             // Reset when the panel is disposed
             HttpRequestRunner.currentPanel.onDidDispose(
                 () => {
@@ -90,10 +80,29 @@ export class HttpRequestRunner {
                 null,
                 []
             );
+        }
+
+        // Show loading state immediately
+        HttpRequestRunner.currentPanel.webview.html = HttpRequestRunner.getLoadingWebviewContent(uri);
+
+        try {
+            // Run TeaPie and get results
+            const results = await HttpRequestRunner.executeTeaPie(uri.fsPath);
+            
+            // Update the panel with actual results
+            if (HttpRequestRunner.currentPanel) {
+                HttpRequestRunner.currentPanel.webview.html = HttpRequestRunner.getWebviewContent(results, uri);
+            }
 
         } catch (error) {
             const errorMessage = `Failed to run HTTP requests: ${error}`;
             HttpRequestRunner.outputChannel.appendLine(errorMessage);
+            
+            // Update the panel with error state
+            if (HttpRequestRunner.currentPanel) {
+                HttpRequestRunner.currentPanel.webview.html = HttpRequestRunner.getErrorWebviewContent(uri, errorMessage);
+            }
+            
             vscode.window.showErrorMessage(errorMessage);
         }
     }
@@ -468,6 +477,199 @@ export class HttpRequestRunner {
     </div>
     
     ${testSuitesHtml || '<div class="no-results">No test results available</div>'}
+</body>
+</html>`;
+    }
+
+    private static getLoadingWebviewContent(fileUri: vscode.Uri): string {
+        const fileName = path.basename(fileUri.fsPath);
+        
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTP Request Results</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            line-height: 1.6;
+            color: var(--vscode-foreground);
+            background-color: var(--vscode-editor-background);
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .header {
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+        }
+        
+        .header h1 {
+            margin: 0;
+            color: var(--vscode-foreground);
+        }
+        
+        .loading-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+            text-align: center;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--vscode-panel-border);
+            border-top: 4px solid var(--vscode-button-background);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            font-size: 16px;
+            color: var(--vscode-descriptionForeground);
+            margin-bottom: 10px;
+        }
+        
+        .loading-subtext {
+            font-size: 14px;
+            color: var(--vscode-descriptionForeground);
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>HTTP Request Results: ${fileName}</h1>
+    </div>
+    
+    <div class="loading-container">
+        <div class="spinner"></div>
+        <div class="loading-text">Running HTTP tests...</div>
+        <div class="loading-subtext">TeaPie is executing requests and validating responses</div>
+    </div>
+</body>
+</html>`;
+    }
+
+    private static getErrorWebviewContent(fileUri: vscode.Uri, errorMessage: string): string {
+        const fileName = path.basename(fileUri.fsPath);
+        
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTP Request Results</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            line-height: 1.6;
+            color: var(--vscode-foreground);
+            background-color: var(--vscode-editor-background);
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .header {
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+        }
+        
+        .header h1 {
+            margin: 0;
+            color: var(--vscode-foreground);
+        }
+        
+        .error-container {
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .error-icon {
+            font-size: 48px;
+            color: var(--vscode-terminal-ansiRed);
+            margin-bottom: 20px;
+        }
+        
+        .error-title {
+            font-size: 20px;
+            color: var(--vscode-terminal-ansiRed);
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        
+        .error-message {
+            background-color: var(--vscode-textCodeBlock-background);
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid var(--vscode-terminal-ansiRed);
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            text-align: left;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin: 20px 0;
+        }
+        
+        .error-suggestions {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
+            border-radius: 6px;
+            text-align: left;
+        }
+        
+        .error-suggestions h3 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: var(--vscode-foreground);
+        }
+        
+        .error-suggestions ul {
+            margin: 0;
+            padding-left: 20px;
+            color: var(--vscode-descriptionForeground);
+        }
+        
+        .error-suggestions li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>HTTP Request Results: ${fileName}</h1>
+    </div>
+    
+    <div class="error-container">
+        <div class="error-icon">⚠️</div>
+        <div class="error-title">Failed to run HTTP tests</div>
+        
+        <div class="error-message">${errorMessage}</div>
+        
+        <div class="error-suggestions">
+            <h3>Possible solutions:</h3>
+            <ul>
+                <li>Check if TeaPie is properly installed and accessible</li>
+                <li>Verify that the .http file syntax is correct</li>
+                <li>Make sure the current environment is properly configured</li>
+                <li>Check the output channel for more detailed error information</li>
+                <li>Try running the file again</li>
+            </ul>
+        </div>
+    </div>
 </body>
 </html>`;
     }
