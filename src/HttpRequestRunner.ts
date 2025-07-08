@@ -547,12 +547,8 @@ export class HttpRequestRunner {
 
         // Convert to test format
         const tests = requests.map((req, index) => {
-            // Extract request number from unique key for better display
-            const requestNumMatch = req.uniqueKey?.match(/^req_(\d+)_/);
-            const requestNum = requestNumMatch ? requestNumMatch[1] : (index + 1);
-            
             return {
-                Name: `[${requestNum}] ${req.method} ${req.url}`,
+                Name: `${req.method} ${req.url}`,
                 Status: req.responseStatus >= 200 && req.responseStatus < 400 ? 'Passed' : 'Failed',
                 Duration: req.duration || '0ms',
                 Request: {
@@ -832,13 +828,25 @@ export class HttpRequestRunner {
         try {
             const parsed = JSON.parse(body);
             const formatted = JSON.stringify(parsed, null, 2);
-            // Add basic JSON syntax highlighting
+            
+            // Enhanced JSON syntax highlighting with more comprehensive patterns
             return formatted
-                .replace(/"([^"]+)":/g, '<span class="json-key">"$1":</span>')
+                // First, handle property keys (before colons)
+                .replace(/"([^"]+)"(\s*:)/g, '<span class="json-key">"$1"</span>$2')
+                // Handle string values (after colons, including empty strings)
                 .replace(/:\s*"([^"]*)"/g, ': <span class="json-string">"$1"</span>')
-                .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-number">$1</span>')
+                // Handle numbers (integers and floats, including negative)
+                .replace(/:\s*(-?\d+\.?\d*(?:[eE][+-]?\d+)?)/g, ': <span class="json-number">$1</span>')
+                // Handle booleans
                 .replace(/:\s*(true|false)/g, ': <span class="json-boolean">$1</span>')
-                .replace(/:\s*null/g, ': <span class="json-null">null</span>');
+                // Handle null values
+                .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>')
+                // Handle array values (numbers, booleans, null in arrays)
+                .replace(/(\[|\s+)(-?\d+\.?\d*(?:[eE][+-]?\d+)?)(\s*[,\]])/g, '$1<span class="json-number">$2</span>$3')
+                .replace(/(\[|\s+)(true|false)(\s*[,\]])/g, '$1<span class="json-boolean">$2</span>$3')
+                .replace(/(\[|\s+)(null)(\s*[,\]])/g, '$1<span class="json-null">$2</span>$3')
+                // Handle string values in arrays
+                .replace(/(\[|\s+)"([^"]*)"(\s*[,\]])/g, '$1<span class="json-string">"$2"</span>$3');
         } catch {
             return body;
         }
@@ -888,11 +896,11 @@ export class HttpRequestRunner {
             .inline-copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
             pre.body { background: var(--vscode-textCodeBlock-background); padding: 15px; border-radius: 6px; overflow-x: auto; font-family: monospace; font-size: 13px; margin: 0; white-space: pre-wrap; border: 1px solid var(--vscode-panel-border); }
             pre.body.json { color: var(--vscode-editor-foreground); }
-            .json .json-key { color: var(--vscode-symbolIcon-keywordForeground); }
-            .json .json-string { color: var(--vscode-symbolIcon-stringForeground); }
-            .json .json-number { color: var(--vscode-symbolIcon-numberForeground); }
-            .json .json-boolean { color: var(--vscode-symbolIcon-booleanForeground); }
-            .json .json-null { color: var(--vscode-symbolIcon-nullForeground); }
+            .json-key { color: #9CDCFE !important; font-weight: 500; }
+            .json-string { color: #CE9178 !important; }
+            .json-number { color: #B5CEA8 !important; }
+            .json-boolean { color: #569CD6 !important; font-weight: 500; }
+            .json-null { color: #569CD6 !important; font-weight: 500; }
             .error-message { color: var(--vscode-terminal-ansiRed); }
             .error-info { padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 6px; color: var(--vscode-descriptionForeground); font-style: italic; }
             .no-results { text-align: center; padding: 60px 20px; color: var(--vscode-descriptionForeground); }
