@@ -42,20 +42,20 @@ interface TeaPieTest {
 export class HttpRequestRunner {
     private static currentPanel: vscode.WebviewPanel | undefined;
     private static outputChannel: vscode.OutputChannel;
+    private static lastRequestId = 0;
 
     public static setOutputChannel(channel: vscode.OutputChannel) {
-        HttpRequestRunner.outputChannel = channel;
+        this.outputChannel = channel;
     }
 
     public static async runHttpFile(uri: vscode.Uri) {
         const column = vscode.window.activeTextEditor?.viewColumn;
         const targetColumn = column === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
 
-        // Create or show the panel
-        if (HttpRequestRunner.currentPanel) {
-            HttpRequestRunner.currentPanel.reveal(targetColumn);
+        if (this.currentPanel) {
+            this.currentPanel.reveal(targetColumn);
         } else {
-            HttpRequestRunner.currentPanel = vscode.window.createWebviewPanel(
+            this.currentPanel = vscode.window.createWebviewPanel(
                 'httpRequestResults',
                 'HTTP Request Results',
                 targetColumn,
@@ -64,100 +64,76 @@ export class HttpRequestRunner {
                     retainContextWhenHidden: true
                 }
             );
-
-            HttpRequestRunner.currentPanel.onDidDispose(() => {
-                HttpRequestRunner.currentPanel = undefined;
+            this.currentPanel.onDidDispose(() => {
+                this.currentPanel = undefined;
             });
         }
 
-        // Show loading state
-        HttpRequestRunner.currentPanel.webview.html = HttpRequestRunner.getLoadingContent(uri);
+        // Generate a unique request ID for this execution
+        const requestId = ++this.lastRequestId;
+        // Show loading state and disable retry button
+        this.currentPanel.webview.html = this.getLoadingContent(uri).replace('<button class="retry-btn" id="retry-btn">Retry</button>', '<button class="retry-btn" id="retry-btn" disabled>Retry</button>');
 
         try {
-            const results = await HttpRequestRunner.executeTeaPie(uri.fsPath);
-            if (HttpRequestRunner.currentPanel) {
-                HttpRequestRunner.currentPanel.webview.html = HttpRequestRunner.getResultsContent(results, uri);
-                HttpRequestRunner.setupRetryHandler(uri);
+            const results = await this.executeTeaPie(uri.fsPath);
+            // Only update the panel if this is the latest request
+            if (this.currentPanel && requestId === this.lastRequestId) {
+                this.currentPanel.webview.html = this.getResultsContent(results, uri);
+                this.setupRetryHandler(uri);
             }
         } catch (error) {
             const errorMessage = `Failed to execute HTTP requests: ${error}`;
-            HttpRequestRunner.outputChannel.appendLine(errorMessage);
-            
-            if (HttpRequestRunner.currentPanel) {
-                HttpRequestRunner.currentPanel.webview.html = HttpRequestRunner.getErrorContent(uri, errorMessage);
+            this.outputChannel.appendLine(errorMessage);
+            if (this.currentPanel && requestId === this.lastRequestId) {
+                this.currentPanel.webview.html = this.getErrorContent(uri, errorMessage);
+                this.setupRetryHandler(uri);
             }
-            
             vscode.window.showErrorMessage(errorMessage);
         }
     }
 
+    private static mapConnectionError(errorMessage: string): string {
+        if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('connection refused')) {
+            return 'Connection refused - please ensure the server is running and accessible';
+        } else if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('getaddrinfo')) {
+            return 'Host not found - please check the URL in your HTTP request';
+        } else if (errorMessage.includes('timeout')) {
+            return 'Request timed out - server may be unresponsive';
+        }
+        return 'HTTP request execution failed';
+    }
+
     private static async executeTeaPie(filePath: string): Promise<TeaPieResult> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            throw new Error('No workspace folder is open');
-        }
-
+        if (!workspaceFolder) throw new Error('No workspace folder is open');
         const currentEnv = vscode.workspace.getConfiguration().get<string>('teapie.currentEnvironment');
         const envParam = currentEnv ? ` -e "${currentEnv}"` : '';
         const command = `teapie test "${filePath}" --no-logo --verbose${envParam}`;
-        
-        HttpRequestRunner.outputChannel.appendLine(`Executing: ${command}`);
-
+        this.outputChannel.appendLine(`Executing: ${command}`);
         try {
             const { stdout } = await execAsync(command, {
                 cwd: workspaceFolder.uri.fsPath,
                 timeout: 60000
             });
-
-            HttpRequestRunner.outputChannel.appendLine(`==================== RAW TEAPIE OUTPUT ====================`);
-            HttpRequestRunner.outputChannel.appendLine(stdout);
-            HttpRequestRunner.outputChannel.appendLine(`==================== END TEAPIE OUTPUT ====================`);
-            const result = HttpRequestRunner.parseOutput(stdout, filePath);
-            HttpRequestRunner.outputChannel.appendLine(`Parsed ${result.TestSuites.TestSuite[0].Tests.length} tests`);
-            
-            // If no tests were parsed, it might mean the requests failed before being processed
-            if (result.TestSuites.TestSuite[0].Tests.length === 0) {
-                return HttpRequestRunner.createFailedResult(filePath, 'No HTTP requests were processed - check if the file contains valid HTTP requests or if there are connection issues');
+            this.outputChannel.appendLine('==================== RAW TEAPIE OUTPUT ====================');
+            this.outputChannel.appendLine(stdout);
+            this.outputChannel.appendLine('==================== END TEAPIE OUTPUT ====================');
+            const result = this.parseOutput(stdout, filePath);
+            if (!result.TestSuites.TestSuite[0].Tests.length) {
+                return this.createFailedResult(filePath, 'No HTTP requests were processed - check if the file contains valid HTTP requests or if there are connection issues');
             }
-            
             return result;
         } catch (error: any) {
-            // Try to parse error output if available
             if (error.stdout) {
                 try {
-                    const result = HttpRequestRunner.parseOutput(error.stdout, filePath);
-                    // If parsing succeeded but no tests found, it means the requests failed before being processed
-                    if (result.TestSuites.TestSuite[0].Tests.length === 0) {
-                        // Improve error message for common connection issues
-                        let errorMessage = error.message || error.toString();
-                        if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('connection refused')) {
-                            errorMessage = 'Connection refused - please ensure the server is running and accessible';
-                        } else if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('getaddrinfo')) {
-                            errorMessage = 'Host not found - please check the URL in your HTTP request';
-                        } else if (errorMessage.includes('timeout')) {
-                            errorMessage = 'Request timed out - server may be unresponsive';
-                        } else {
-                            errorMessage = 'HTTP request execution failed';
-                        }
-                        return HttpRequestRunner.createFailedResult(filePath, errorMessage);
+                    const result = this.parseOutput(error.stdout, filePath);
+                    if (!result.TestSuites.TestSuite[0].Tests.length) {
+                        return this.createFailedResult(filePath, this.mapConnectionError(error.message || error.toString()));
                     }
                     return result;
-                } catch {
-                    // Fall through to create failed result
-                }
+                } catch {}
             }
-            
-            // Improve error message for common connection issues
-            let errorMessage = error.message || error.toString();
-            if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('connection refused')) {
-                errorMessage = 'Connection refused - please ensure the server is running and accessible';
-            } else if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('getaddrinfo')) {
-                errorMessage = 'Host not found - please check the URL in your HTTP request';
-            } else if (errorMessage.includes('timeout')) {
-                errorMessage = 'Request timed out - server may be unresponsive';
-            }
-            
-            return HttpRequestRunner.createFailedResult(filePath, errorMessage);
+            return this.createFailedResult(filePath, this.mapConnectionError(error.message || error.toString()));
         }
     }
 
@@ -165,34 +141,20 @@ export class HttpRequestRunner {
         const fileName = path.basename(filePath, path.extname(filePath));
         const lines = stdout.split('\n');
         const requests: any[] = [];
-        const pendingRequests: Map<string, any> = new Map(); // Track multiple concurrent requests
+        const pendingRequests: Map<string, any> = new Map();
         let connectionError: string | null = null;
-        let requestCounter = 0; // Global counter for unique request identification
-        let isNextRequestRetry = false; // Flag to detect retry attempts
-
-        HttpRequestRunner.outputChannel.appendLine(`==================== PARSING DEBUG ====================`);
-
+        let requestCounter = 0;
+        let isNextRequestRetry = false;
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
-            
-            // Check for retry attempt markers
-            if (line.includes('DBG] Retry attempt number')) {
-                isNextRequestRetry = true;
-                HttpRequestRunner.outputChannel.appendLine(`Detected retry attempt marker: ${line}`);
-                continue;
-            }
-            
-            // Look for connection errors with specific details
+            if (line.includes('DBG] Retry attempt number')) { isNextRequestRetry = true; continue; }
             if (line.includes('No connection could be made because the target machine actively refused it')) {
                 const urlMatch = line.match(/\(([^)]+)\)/);
                 const url = urlMatch ? urlMatch[1] : 'unknown host';
                 connectionError = `Connection refused to ${url} - please ensure the server is running and accessible`;
                 continue;
             }
-            
-            // Look for other detailed error messages from TeaPie
             if (line.includes('[') && line.includes('ERR]') && line.includes('Exception was thrown during execution')) {
-                // Check the next few lines for error details
                 for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
                     const errorLine = lines[j].trim();
                     if (errorLine.includes('No connection could be made because the target machine actively refused it')) {
@@ -208,163 +170,88 @@ export class HttpRequestRunner {
                         break;
                     }
                 }
-                if (!connectionError) {
-                    connectionError = 'HTTP request execution failed';
-                }
+                if (!connectionError) connectionError = 'HTTP request execution failed';
                 continue;
             }
-            
-            // Look for request start
             const startMatch = line.match(/Start processing HTTP request (\w+)\s+(.+)/);
             if (startMatch) {
                 const method = startMatch[1];
                 const url = startMatch[2];
-                
                 if (isNextRequestRetry) {
-                    // This is a retry attempt - find the original request for this URL and method
-                    HttpRequestRunner.outputChannel.appendLine(`Processing retry attempt for ${method} ${url}`);
                     let originalRequest = null;
-                    let originalKey = null;
-                    
-                    // Look for the most recent completed request with the same method and URL
-                    for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
+                    for (const [, request] of Array.from(pendingRequests.entries()).reverse()) {
                         if (request.method === method && request.url === url && request.duration) {
                             originalRequest = request;
-                            originalKey = key;
                             break;
                         }
                     }
-                    
-                    // If no completed request found, look in the completed requests array
                     if (!originalRequest) {
                         for (let j = requests.length - 1; j >= 0; j--) {
                             const req = requests[j];
                             if (req.method === method && req.url === url) {
                                 originalRequest = req;
-                                HttpRequestRunner.outputChannel.appendLine(`Found original request in completed requests for retry: ${method} ${url}`);
                                 break;
                             }
                         }
                     }
-                    
                     if (originalRequest) {
-                        // Create a new pending entry for this retry that references the original
                         requestCounter++;
                         const retryKey = `retry_${requestCounter}_${method}_${url}`;
-                        const retryRequest = {
-                            method: method,
-                            url: url,
-                            requestHeaders: {},
-                            responseHeaders: {},
-                            uniqueKey: retryKey,
-                            isTemporary: false,
-                            isRetry: true,
-                            originalRequest: originalRequest // Reference to original
-                        };
-                        pendingRequests.set(retryKey, retryRequest);
-                        HttpRequestRunner.outputChannel.appendLine(`Created retry request: ${retryKey} (referencing original)`);
-                    } else {
-                        HttpRequestRunner.outputChannel.appendLine(`Could not find original request for retry: ${method} ${url}`);
+                        pendingRequests.set(retryKey, {
+                            method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: retryKey, isTemporary: false, isRetry: true, originalRequest
+                        });
                     }
-                    
-                    isNextRequestRetry = false; // Reset flag
+                    isNextRequestRetry = false;
                 } else {
-                    // This is a new original request
                     requestCounter++;
                     const requestKey = `req_${requestCounter}_${method}_${url}`;
-                    
-                    // Check if we already have a temporary entry for this request (from look-ahead logic)
-                    // This can happen when auth body was found before the auth request start
                     let existingRequest = null;
                     if (url.includes('/auth/token') || url.includes('/token')) {
-                        // Look for any temporary auth request entries
                         for (const [key, req] of pendingRequests.entries()) {
                             if (req.method === method && req.url === url && req.isTemporary) {
                                 existingRequest = req;
-                                // Remove the temporary entry
                                 pendingRequests.delete(key);
                                 break;
                             }
                         }
                     }
-                    
                     if (existingRequest) {
                         existingRequest.isTemporary = false;
                         existingRequest.uniqueKey = requestKey;
                         pendingRequests.set(requestKey, existingRequest);
-                        HttpRequestRunner.outputChannel.appendLine(`Found request start for already tracked auth request: ${requestKey}`);
                     } else {
-                        const newRequest = {
-                            method: method,
-                            url: url,
-                            requestHeaders: {},
-                            responseHeaders: {},
-                            uniqueKey: requestKey,
-                            isTemporary: false,
-                            isRetry: false
-                        };
-                        pendingRequests.set(requestKey, newRequest);
-                        HttpRequestRunner.outputChannel.appendLine(`Found request start: ${requestKey}`);
+                        pendingRequests.set(requestKey, {
+                            method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: requestKey, isTemporary: false, isRetry: false
+                        });
                     }
                 }
                 continue;
             }
-
-            // Look for request body
             if (line.includes("Following HTTP request's body")) {
                 const requestBody = this.extractBody(lines, i);
-                HttpRequestRunner.outputChannel.appendLine(`Extracted body: ${requestBody.substring(0, 100)}...`);
-                HttpRequestRunner.outputChannel.appendLine(`Current pending requests: ${Array.from(pendingRequests.keys()).join(', ')}`);
-                
-                // Try to match body to the correct request based on content and order
                 let targetRequest = null;
                 let targetKey = null;
-                
-                // Check if this looks like auth credentials
-                const isAuthBody = requestBody.includes('grant_type=') || 
-                                  requestBody.includes('client_id=') || 
-                                  requestBody.includes('client_secret=');
-                
-                // Check if this looks like JSON data
+                const isAuthBody = requestBody.includes('grant_type=') || requestBody.includes('client_id=') || requestBody.includes('client_secret=');
                 const isJsonBody = requestBody.trim().startsWith('{') && requestBody.trim().endsWith('}');
-                
-                HttpRequestRunner.outputChannel.appendLine(`Body analysis: isAuthBody=${isAuthBody}, isJsonBody=${isJsonBody}`);
-                
                 if (isAuthBody) {
-                    // For auth bodies, find the auth/token request specifically
-                    HttpRequestRunner.outputChannel.appendLine(`Looking for auth/token request...`);
                     for (const [key, request] of pendingRequests.entries()) {
-                        HttpRequestRunner.outputChannel.appendLine(`Checking ${key}: includes token? ${key.includes('/auth/token') || key.includes('/token')}, has body? ${!!request.requestBody}`);
                         if ((key.includes('/auth/token') || key.includes('/token')) && !request.requestBody) {
                             targetRequest = request;
                             targetKey = key;
                             break;
                         }
                     }
-                    
-                    // If no auth request found yet, create temporary entry for future auth request
                     if (!targetRequest) {
-                        HttpRequestRunner.outputChannel.appendLine(`No auth request found yet, will look for it in subsequent lines...`);
-                        // Look ahead in the next few lines to see if we find an auth request start
                         for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
                             const futureStartMatch = lines[j].trim().match(/Start processing HTTP request (\w+)\s+(.+)/);
                             if (futureStartMatch) {
                                 const futureUrl = futureStartMatch[2];
                                 if (futureUrl.includes('/auth/token') || futureUrl.includes('/token')) {
-                                    // We'll find this auth request soon, store the body temporarily
-                                    HttpRequestRunner.outputChannel.appendLine(`Found future auth request: ${futureStartMatch[1]} ${futureUrl}, storing auth body temporarily`);
-                                    // Create a temporary entry for the future auth request
                                     const tempKey = `temp_auth_${futureStartMatch[1]}_${futureUrl}`;
-                                    const tempAuthRequest = {
-                                        method: futureStartMatch[1],
-                                        url: futureUrl,
-                                        requestHeaders: {},
-                                        responseHeaders: {},
-                                        requestBody: requestBody,
-                                        isTemporary: true
-                                    };
-                                    pendingRequests.set(tempKey, tempAuthRequest);
-                                    targetRequest = tempAuthRequest;
+                                    pendingRequests.set(tempKey, {
+                                        method: futureStartMatch[1], url: futureUrl, requestHeaders: {}, responseHeaders: {}, requestBody, isTemporary: true
+                                    });
+                                    targetRequest = pendingRequests.get(tempKey);
                                     targetKey = tempKey;
                                     break;
                                 }
@@ -372,13 +259,9 @@ export class HttpRequestRunner {
                         }
                     }
                 } else if (isJsonBody) {
-                    // For JSON bodies, find the most recent non-auth request that doesn't have a body yet
-                    HttpRequestRunner.outputChannel.appendLine(`Looking for non-auth request for JSON body...`);
-                    const requestEntries = Array.from(pendingRequests.entries()).reverse();
-                    for (const [key, request] of requestEntries) {
-                        HttpRequestRunner.outputChannel.appendLine(`Checking ${key}: not token? ${!key.includes('/auth/token') && !key.includes('/token')}, method: ${request.method}, has body? ${!!request.requestBody}, is retry? ${!!request.isRetry}`);
-                        if (!key.includes('/auth/token') && !key.includes('/token') && 
-                            (request.method === 'POST' || request.method === 'PUT' || request.method === 'PATCH') && 
+                    for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
+                        if (!key.includes('/auth/token') && !key.includes('/token') &&
+                            (request.method === 'POST' || request.method === 'PUT' || request.method === 'PATCH') &&
                             !request.requestBody && !request.isRetry) {
                             targetRequest = request;
                             targetKey = key;
@@ -386,8 +269,6 @@ export class HttpRequestRunner {
                         }
                     }
                 } else {
-                    // For other bodies (like empty text/plain), look backwards to find the most recent request start
-                    HttpRequestRunner.outputChannel.appendLine(`Looking for any request without body (fallback)...`);
                     for (let j = i - 1; j >= 0; j--) {
                         const backLine = lines[j].trim();
                         const backStartMatch = backLine.match(/Start processing HTTP request (\w+)\s+(.+)/);
@@ -402,53 +283,31 @@ export class HttpRequestRunner {
                         }
                     }
                 }
-                
-                if (targetRequest && targetKey) {
-                    targetRequest.requestBody = requestBody;
-                    HttpRequestRunner.outputChannel.appendLine(`Found request body for ${targetKey} (${isAuthBody ? 'auth' : isJsonBody ? 'json' : 'other'})`);
-                } else {
-                    HttpRequestRunner.outputChannel.appendLine(`Could not match request body to any pending request`);
-                }
+                if (targetRequest && targetKey) targetRequest.requestBody = requestBody;
                 continue;
             }
-
-            // Look for response
             const responseMatch = line.match(/HTTP Response (\d+) \(([^)]+)\) was received from '([^']+)'/);
             if (responseMatch) {
                 const statusCode = parseInt(responseMatch[1]);
                 const statusText = responseMatch[2];
                 const responseUrl = responseMatch[3];
-                
-                // Find the most recent request for this URL that doesn't have a response yet
                 let targetRequest = null;
                 let targetKey = null;
-                
-                // Go through requests in reverse order to find the most recent matching request
-                const requestEntries = Array.from(pendingRequests.entries()).reverse();
-                for (const [key, request] of requestEntries) {
+                for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
                     if (request.url === responseUrl && !request.responseStatus) {
                         targetRequest = request;
                         targetKey = key;
                         break;
                     }
                 }
-                
                 if (targetRequest && targetKey) {
                     targetRequest.responseStatus = statusCode;
                     targetRequest.responseStatusText = statusText;
-                    HttpRequestRunner.outputChannel.appendLine(`Found response: ${statusCode} ${statusText} for ${targetKey} (URL: ${responseUrl})`);
-                } else {
-                    HttpRequestRunner.outputChannel.appendLine(`Could not match response to any pending request: ${statusCode} ${statusText} for ${responseUrl}`);
                 }
                 continue;
             }
-
-            // Look for response body
             if (line.includes("Response's body")) {
                 const responseBody = this.extractBody(lines, i);
-                HttpRequestRunner.outputChannel.appendLine(`Extracted response body: ${responseBody.substring(0, 100)}...`);
-                
-                // Look backwards to find the most recent response to associate this body with
                 let targetRequest = null;
                 let targetKey = null;
                 for (let j = i - 1; j >= 0; j--) {
@@ -457,126 +316,84 @@ export class HttpRequestRunner {
                     if (backResponseMatch) {
                         const responseUrl = backResponseMatch[3];
                         const responseStatus = parseInt(backResponseMatch[1]);
-                        
-                        // Find the most recent request that matches this response URL and status and doesn't have a body yet
-                        const requestEntries = Array.from(pendingRequests.entries()).reverse();
-                        for (const [key, request] of requestEntries) {
-                            if (request.url === responseUrl && 
-                                request.responseStatus === responseStatus && 
-                                !request.responseBody) {
+                        for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
+                            if (request.url === responseUrl && request.responseStatus === responseStatus && !request.responseBody) {
                                 targetRequest = request;
                                 targetKey = key;
                                 break;
                             }
                         }
-                        if (targetRequest) {
-                            break;
-                        }
+                        if (targetRequest) break;
                     }
                 }
-                
-                if (targetRequest && targetKey) {
-                    targetRequest.responseBody = responseBody;
-                    HttpRequestRunner.outputChannel.appendLine(`Found response body for ${targetKey}`);
-                } else {
-                    HttpRequestRunner.outputChannel.appendLine(`Could not match response body to any pending request`);
-                }
+                if (targetRequest && targetKey) targetRequest.responseBody = responseBody;
                 continue;
             }
-
-            // Look for request end
             const endMatch = line.match(/End processing HTTP request after ([\d.]+)ms - (\d+)/);
             if (endMatch) {
                 const statusCode = parseInt(endMatch[2]);
                 const duration = endMatch[1] + 'ms';
-                
-                // Find the most recent request that matches this status code and has a response but no duration yet
                 let foundRequest = null;
                 let foundKey = null;
-                
-                // Go through requests in reverse order to find the most recent matching request
-                const requestEntries = Array.from(pendingRequests.entries()).reverse();
-                for (const [key, request] of requestEntries) {
+                for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
                     if (request.responseStatus === statusCode && !request.duration) {
                         foundRequest = request;
                         foundKey = key;
                         break;
                     }
                 }
-                
-                // If no exact match by status code, find any request without duration (fallback)
                 if (!foundRequest) {
-                    for (const [key, request] of requestEntries) {
+                    for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
                         if (!request.duration) {
                             foundRequest = request;
                             foundKey = key;
-                            foundRequest.responseStatus = statusCode; // Set status if not set
+                            foundRequest.responseStatus = statusCode;
                             break;
                         }
                     }
                 }
-                
                 if (foundRequest && foundKey) {
                     foundRequest.duration = duration;
-                    HttpRequestRunner.outputChannel.appendLine(`Request completed: ${foundKey} - ${statusCode} in ${duration}`);
-                    
                     if (foundRequest.isRetry && foundRequest.originalRequest) {
-                        // This is a retry - update the original request instead of creating a new entry
-                        HttpRequestRunner.outputChannel.appendLine(`Updating original request with retry results: ${foundKey}`);
                         foundRequest.originalRequest.responseStatus = foundRequest.responseStatus || statusCode;
                         foundRequest.originalRequest.responseStatusText = foundRequest.responseStatusText;
                         foundRequest.originalRequest.responseBody = foundRequest.responseBody;
                         foundRequest.originalRequest.duration = duration;
-                        
-                        // Don't add the retry to requests array, just remove it from pending
                         pendingRequests.delete(foundKey);
                     } else {
-                        // This is an original request - add it to the results
                         requests.push(foundRequest);
                         pendingRequests.delete(foundKey);
                     }
-                } else {
-                    HttpRequestRunner.outputChannel.appendLine(`Found end marker but couldn't match to pending request: ${line}`);
                 }
                 continue;
             }
         }
-
-        HttpRequestRunner.outputChannel.appendLine(`Total requests parsed: ${requests.length}`);
-        HttpRequestRunner.outputChannel.appendLine(`==================== END PARSING DEBUG ====================`);
-
-        // Convert to test format
-        const tests = requests.map((req, index) => {
-            return {
-                Name: `${req.method} ${req.url}`,
-                Status: req.responseStatus >= 200 && req.responseStatus < 400 ? 'Passed' : 'Failed',
-                Duration: req.duration || '0ms',
-                Request: {
-                    Method: req.method,
-                    Url: req.url,
-                    Headers: req.requestHeaders,
-                    Body: req.requestBody
-                },
-                Response: req.responseStatus ? {
-                    StatusCode: req.responseStatus,
-                    StatusText: req.responseStatusText || 'OK',
-                    Headers: req.responseHeaders,
-                    Body: req.responseBody,
-                    Duration: req.duration || '0ms'
-                } : undefined
-            };
-        });
-
-        // If we found a connection error but no successful requests, create an error test
-        if (connectionError && tests.length === 0) {
+        const tests: TeaPieTest[] = requests.map(req => ({
+            Name: `${req.method} ${req.url}`,
+            Status: req.responseStatus >= 200 && req.responseStatus < 400 ? 'Passed' : 'Failed',
+            Duration: req.duration || '0ms',
+            Request: {
+                Method: req.method,
+                Url: req.url,
+                Headers: req.requestHeaders,
+                Body: req.requestBody
+            },
+            Response: req.responseStatus ? {
+                StatusCode: req.responseStatus,
+                StatusText: req.responseStatusText || 'OK',
+                Headers: req.responseHeaders,
+                Body: req.responseBody,
+                Duration: req.duration || '0ms'
+            } : undefined
+        }));
+        if (connectionError && !tests.length) {
             tests.push({
                 Name: 'HTTP Request Failed',
                 Status: 'Failed',
                 Duration: '0ms',
                 ErrorMessage: connectionError
-            } as any);
+            });
         }
-
         return {
             TestSuites: {
                 TestSuite: [{
@@ -629,7 +446,9 @@ export class HttpRequestRunner {
 
     private static setupRetryHandler(uri: vscode.Uri) {
         if (!HttpRequestRunner.currentPanel) return;
-        
+        // Remove all previous listeners by resetting the webview's onDidReceiveMessage
+        HttpRequestRunner.currentPanel.webview.onDidReceiveMessage(() => {});
+        // Add a new listener for this file only
         HttpRequestRunner.currentPanel.webview.onDidReceiveMessage(
             (message) => {
                 if (message?.command === 'retry') {
