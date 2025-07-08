@@ -118,7 +118,7 @@ export class HttpRequestRunner {
             this.outputChannel.appendLine('==================== RAW TEAPIE OUTPUT ====================');
             this.outputChannel.appendLine(stdout);
             this.outputChannel.appendLine('==================== END TEAPIE OUTPUT ====================');
-            const result = this.parseOutput(stdout, filePath);
+            const result = await this.parseOutput(stdout, filePath);
             if (!result.TestSuites.TestSuite[0].Tests.length) {
                 return this.createFailedResult(filePath, 'No HTTP requests were processed - check if the file contains valid HTTP requests or if there are connection issues');
             }
@@ -126,7 +126,7 @@ export class HttpRequestRunner {
         } catch (error: any) {
             if (error.stdout) {
                 try {
-                    const result = this.parseOutput(error.stdout, filePath);
+                    const result = await this.parseOutput(error.stdout, filePath);
                     if (!result.TestSuites.TestSuite[0].Tests.length) {
                         return this.createFailedResult(filePath, this.mapConnectionError(error.message || error.toString()));
                     }
@@ -137,7 +137,41 @@ export class HttpRequestRunner {
         }
     }
 
-    private static parseOutput(stdout: string, filePath: string): TeaPieResult {
+    private static async parseHttpFileForNames(filePath: string): Promise<Array<{name?: string, title?: string, method: string, url: string}>> {
+        const fs = await import('fs/promises');
+        const content = await fs.readFile(filePath, 'utf8');
+        const lines = content.split(/\r?\n/);
+        const result: Array<{name?: string, title?: string, method: string, url: string}> = [];
+        let lastName: string | undefined = undefined;
+        let lastTitle: string | undefined = undefined;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            const nameMatch = line.match(/^#\s*@name\s+(.+)/);
+            if (nameMatch) {
+                lastName = nameMatch[1].trim();
+                continue;
+            }
+            const titleMatch = line.match(/^###\s+(.+)/);
+            if (titleMatch) {
+                lastTitle = titleMatch[1].trim();
+                continue;
+            }
+            const methodMatch = line.match(/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\s+(.+)/i);
+            if (methodMatch) {
+                result.push({
+                    name: lastName,
+                    title: lastTitle,
+                    method: methodMatch[1].toUpperCase(),
+                    url: methodMatch[2].trim()
+                });
+                lastName = undefined;
+                lastTitle = undefined;
+            }
+        }
+        return result;
+    }
+
+    private static async parseOutput(stdout: string, filePath: string): Promise<TeaPieResult> {
         const fileName = path.basename(filePath, path.extname(filePath));
         const lines = stdout.split('\n');
         const requests: any[] = [];
@@ -145,8 +179,13 @@ export class HttpRequestRunner {
         let connectionError: string | null = null;
         let requestCounter = 0;
         let isNextRequestRetry = false;
+        let foundHttpRequest = false;
+        // Parse the .http file for names/titles/method/url
+        const httpFileRequests = await this.parseHttpFileForNames(filePath);
+        let httpFileRequestIdx = 0;
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
+            if (line.match(/Start processing HTTP request/)) foundHttpRequest = true;
             if (line.includes('DBG] Retry attempt number')) { isNextRequestRetry = true; continue; }
             if (line.includes('No connection could be made because the target machine actively refused it')) {
                 const urlMatch = line.match(/\(([^)]+)\)/);
@@ -177,30 +216,27 @@ export class HttpRequestRunner {
             if (startMatch) {
                 const method = startMatch[1];
                 const url = startMatch[2];
+                let name: string | null = null;
+                let title: string | null = null;
+                // Only assign name/title for user requests (not auth/token)
+                const isUserRequest = !url.includes('/auth/token') && !url.includes('/token');
+                if (isUserRequest && httpFileRequestIdx < httpFileRequests.length) {
+                    const reqInfo = httpFileRequests[httpFileRequestIdx];
+                    name = reqInfo.name || null;
+                    title = reqInfo.title || null;
+                    httpFileRequestIdx++;
+                }
                 if (isNextRequestRetry) {
-                    let originalRequest = null;
-                    for (const [, request] of Array.from(pendingRequests.entries()).reverse()) {
-                        if (request.method === method && request.url === url && request.duration) {
-                            originalRequest = request;
-                            break;
+                    requestCounter++;
+                    const retryKey = `retry_${requestCounter}_${method}_${url}`;
+                    for (const [key, req] of pendingRequests.entries()) {
+                        if (req.isRetry && req.method === method) {
+                            pendingRequests.delete(key);
                         }
                     }
-                    if (!originalRequest) {
-                        for (let j = requests.length - 1; j >= 0; j--) {
-                            const req = requests[j];
-                            if (req.method === method && req.url === url) {
-                                originalRequest = req;
-                                break;
-                            }
-                        }
-                    }
-                    if (originalRequest) {
-                        requestCounter++;
-                        const retryKey = `retry_${requestCounter}_${method}_${url}`;
-                        pendingRequests.set(retryKey, {
-                            method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: retryKey, isTemporary: false, isRetry: true, originalRequest
-                        });
-                    }
+                    pendingRequests.set(retryKey, {
+                        method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: retryKey, isTemporary: false, isRetry: true, originalRequest: null, title, name
+                    });
                     isNextRequestRetry = false;
                 } else {
                     requestCounter++;
@@ -218,10 +254,13 @@ export class HttpRequestRunner {
                     if (existingRequest) {
                         existingRequest.isTemporary = false;
                         existingRequest.uniqueKey = requestKey;
+                        existingRequest.title = title;
+                        existingRequest.name = name;
+                        existingRequest.url = url;
                         pendingRequests.set(requestKey, existingRequest);
                     } else {
                         pendingRequests.set(requestKey, {
-                            method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: requestKey, isTemporary: false, isRetry: false
+                            method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: requestKey, isTemporary: false, isRetry: false, title, name
                         });
                     }
                 }
@@ -368,8 +407,32 @@ export class HttpRequestRunner {
                 continue;
             }
         }
-        const tests: TeaPieTest[] = requests.map(req => ({
-            Name: `${req.method} ${req.url}`,
+        // Filter out duplicate requests by name (or by method+url if no name), keeping only the last occurrence
+        // Improved deduplication: for each logical request (method+url), keep only the last occurrence, preferring named/title requests
+        const logicalRequestsMap = new Map<string, any>();
+        const nameOrTitleRequests = new Map<string, any>();
+        for (let i = 0; i < requests.length; i++) {
+            const req = requests[i];
+            const logicalKey = `${req.method} ${req.url}`;
+            if (req.name || req.title) {
+                // Always prefer named/title requests for this logicalKey
+                nameOrTitleRequests.set(logicalKey, req);
+            } else {
+                // Only set if not already set by a named/title request
+                if (!nameOrTitleRequests.has(logicalKey)) {
+                    logicalRequestsMap.set(logicalKey, req);
+                }
+            }
+        }
+        // Merge: prefer named/title requests, fallback to unnamed if not present
+        const uniqueRequests = Array.from(nameOrTitleRequests.values());
+        for (const [logicalKey, req] of logicalRequestsMap.entries()) {
+            if (!nameOrTitleRequests.has(logicalKey)) {
+                uniqueRequests.push(req);
+            }
+        }
+        const tests: TeaPieTest[] = uniqueRequests.map(req => ({
+            Name: req.name ? req.name : (req.title ? req.title : `${req.method} ${req.url}`),
             Status: req.responseStatus >= 200 && req.responseStatus < 400 ? 'Passed' : 'Failed',
             Duration: req.duration || '0ms',
             Request: {
@@ -386,6 +449,24 @@ export class HttpRequestRunner {
                 Duration: req.duration || '0ms'
             } : undefined
         }));
+        if (!foundHttpRequest) {
+            return {
+                TestSuites: {
+                    TestSuite: [{
+                        Name: fileName,
+                        FilePath: filePath,
+                        Tests: [{
+                            Name: 'No HTTP requests found',
+                            Status: 'Failed',
+                            Duration: '0ms',
+                            ErrorMessage: 'No HTTP requests were found in this file.'
+                        }],
+                        Status: 'Failed',
+                        Duration: '0s'
+                    }]
+                }
+            };
+        }
         if (connectionError && !tests.length) {
             tests.push({
                 Name: 'HTTP Request Failed',
@@ -445,17 +526,13 @@ export class HttpRequestRunner {
     }
 
     private static setupRetryHandler(uri: vscode.Uri) {
-        if (!HttpRequestRunner.currentPanel) return;
+        if (!this.currentPanel) return;
         // Remove all previous listeners by resetting the webview's onDidReceiveMessage
-        HttpRequestRunner.currentPanel.webview.onDidReceiveMessage(() => {});
+        this.currentPanel.webview.onDidReceiveMessage(() => {});
         // Add a new listener for this file only
-        HttpRequestRunner.currentPanel.webview.onDidReceiveMessage(
-            (message) => {
-                if (message?.command === 'retry') {
-                    HttpRequestRunner.runHttpFile(uri);
-                }
-            }
-        );
+        this.currentPanel.webview.onDidReceiveMessage(message => {
+            if (message?.command === 'retry') this.runHttpFile(uri);
+        });
     }
 
     private static getLoadingContent(fileUri: vscode.Uri): string {
@@ -507,17 +584,27 @@ export class HttpRequestRunner {
         const fileName = path.basename(fileUri.fsPath);
         let requestsHtml = '';
         let hasRequests = false;
-        
         if (results.TestSuites?.TestSuite) {
             results.TestSuites.TestSuite.forEach(suite => {
                 suite.Tests?.forEach((test, idx) => {
-                    // Mark as having requests if it's a real HTTP request (has Request object) or if it's an error
-                    if (test.Request || test.ErrorMessage) {
-                        hasRequests = true;
-                    }
+                    if (test.Request || test.ErrorMessage) hasRequests = true;
                     const statusText = test.Status === 'Passed' ? 'Success' : 'Fail';
-                    
                     let requestHtml = '';
+                    let headerHtml = '';
+                    // Use the title as the main header if present, otherwise METHOD URL
+                    const hasTitle = test.Name && !test.Name.match(/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\s+http/);
+                    if (hasTitle) {
+                        headerHtml = `<div class="request-header">
+                            <h3>${test.Name}</h3>
+                            <span class="status ${test.Status.toLowerCase()}">${statusText}</span>
+                        </div>`;
+                        // Do NOT add method/url detail line here
+                    } else {
+                        headerHtml = `<div class="request-header">
+                            <h3>${test.Request ? `${test.Request.Method} ${test.Request.Url}` : test.Name}</h3>
+                            <span class="status ${test.Status.toLowerCase()}">${statusText}</span>
+                        </div>`;
+                    }
                     if (test.Request) {
                         const body = this.formatBody(test.Request.Body);
                         requestHtml = `
@@ -540,14 +627,12 @@ export class HttpRequestRunner {
                                 </div>` : ''}
                             </div>`;
                     } else if (test.ErrorMessage && !test.Response) {
-                        // For error-only tests (like connection failures), show a basic request info
                         requestHtml = `
                             <div class="section">
                                 <h4>Request</h4>
                                 <div class="error-info">Unable to process HTTP request</div>
                             </div>`;
                     }
-                    
                     let responseHtml = '';
                     if (test.Response) {
                         const statusClass = test.Response.StatusCode >= 200 && test.Response.StatusCode < 300 ? 'success' : 'error';
@@ -572,7 +657,6 @@ export class HttpRequestRunner {
                                 </div>` : ''}
                             </div>`;
                     }
-                    
                     let errorHtml = '';
                     if (test.ErrorMessage) {
                         errorHtml = `
@@ -581,13 +665,9 @@ export class HttpRequestRunner {
                                 <pre class="error-message">${test.ErrorMessage}</pre>
                             </div>`;
                     }
-                    
                     requestsHtml += `
                         <div class="request-item">
-                            <div class="request-header">
-                                <h3>${test.Name}</h3>
-                                <span class="status ${test.Status.toLowerCase()}">${statusText}</span>
-                            </div>
+                            ${headerHtml}
                             <div class="request-content">
                                 ${requestHtml}
                                 ${responseHtml}
@@ -597,21 +677,15 @@ export class HttpRequestRunner {
                 });
             });
         }
-
-        // Check if we have no requests vs execution failure
         let fallbackContent = '';
         if (!hasRequests) {
-            // Check if this was an execution failure (has error message in test)
             const hasErrors = results.TestSuites?.TestSuite?.some(suite => 
                 suite.Tests?.some(test => test.ErrorMessage)
             );
-            
             if (hasErrors) {
-                // Show the error information
                 const errorTest = results.TestSuites.TestSuite
                     .flatMap(suite => suite.Tests || [])
                     .find(test => test.ErrorMessage);
-                
                 fallbackContent = `
                     <div class="error-container">
                         <div class="error-icon">⚠️</div>
@@ -622,7 +696,6 @@ export class HttpRequestRunner {
                 fallbackContent = '<div class="no-results"><h2>No HTTP requests found</h2></div>';
             }
         }
-
         return `<!DOCTYPE html>
 <html>
 <head>
@@ -643,29 +716,18 @@ export class HttpRequestRunner {
 
     private static formatBody(body?: string): string {
         if (!body) return '';
-        
         try {
-            const parsed = JSON.parse(body);
-            const formatted = JSON.stringify(parsed, null, 2);
-            
-            // Enhanced JSON syntax highlighting with more comprehensive patterns
+            const formatted = JSON.stringify(JSON.parse(body), null, 2);
             return formatted
-                // First, handle property keys (before colons)
-                .replace(/"([^"]+)"(\s*:)/g, '<span class="json-key">"$1"</span>$2')
-                // Handle string values (after colons, including empty strings)
-                .replace(/:\s*"([^"]*)"/g, ': <span class="json-string">"$1"</span>')
-                // Handle numbers (integers and floats, including negative)
+                .replace(/"([^\"]+)"(\s*:)/g, '<span class="json-key">"$1"</span>$2')
+                .replace(/:\s*"([^\"]*)"/g, ': <span class="json-string">"$1"</span>')
                 .replace(/:\s*(-?\d+\.?\d*(?:[eE][+-]?\d+)?)/g, ': <span class="json-number">$1</span>')
-                // Handle booleans
                 .replace(/:\s*(true|false)/g, ': <span class="json-boolean">$1</span>')
-                // Handle null values
                 .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>')
-                // Handle array values (numbers, booleans, null in arrays)
                 .replace(/(\[|\s+)(-?\d+\.?\d*(?:[eE][+-]?\d+)?)(\s*[,\]])/g, '$1<span class="json-number">$2</span>$3')
                 .replace(/(\[|\s+)(true|false)(\s*[,\]])/g, '$1<span class="json-boolean">$2</span>$3')
                 .replace(/(\[|\s+)(null)(\s*[,\]])/g, '$1<span class="json-null">$2</span>$3')
-                // Handle string values in arrays
-                .replace(/(\[|\s+)"([^"]*)"(\s*[,\]])/g, '$1<span class="json-string">"$2"</span>$3');
+                .replace(/(\[|\s+)"([^\"]*)"(\s*[,\]])/g, '$1<span class="json-string">"$2"</span>$3');
         } catch {
             return body;
         }
@@ -729,32 +791,25 @@ export class HttpRequestRunner {
     private static getScript(): string {
         return `
             const retryBtn = document.getElementById('retry-btn');
-            if (retryBtn && window.acquireVsCodeApi) {
-                retryBtn.addEventListener('click', () => {
-                    const vscode = window.acquireVsCodeApi();
-                    vscode.postMessage({ command: 'retry' });
-                });
-            }
+            retryBtn?.addEventListener('click', () => window.acquireVsCodeApi?.().postMessage({ command: 'retry' }));
 
-            function copyToClipboard(button, elementId) {
-                const element = document.getElementById(elementId);
-                if (element) {
-                    const text = element.textContent || element.innerText;
-                    navigator.clipboard.writeText(text).then(() => {
-                        const originalText = button.textContent;
-                        button.textContent = '✓ Copied';
-                        button.style.background = 'var(--vscode-terminal-ansiGreen)';
-                        setTimeout(() => {
-                            button.textContent = originalText;
-                            button.style.background = 'var(--vscode-button-secondaryBackground)';
-                        }, 1500);
-                    }).catch(() => {
-                        button.textContent = '❌ Failed';
-                        setTimeout(() => {
-                            button.textContent = '📋 Copy';
-                        }, 1500);
-                    });
-                }
+            window.copyToClipboard = (btn, id) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const text = el.textContent || el.innerText;
+                navigator.clipboard.writeText(text)
+                    .then(() => setBtn(btn, '✅ Copied', 'var(--vscode-terminal-ansiGreen)'))
+                    .catch(() => setBtn(btn, '❌ Failed'));
+            };
+
+            function setBtn(btn, txt, bg) {
+                const orig = btn.textContent;
+                btn.textContent = txt;
+                if (bg) btn.style.background = bg;
+                setTimeout(() => {
+                    btn.textContent = orig;
+                    btn.style.background = '';
+                }, 1500);
             }
         `;
     }
