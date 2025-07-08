@@ -316,7 +316,7 @@ export class HttpRequestRunner {
                 HttpRequestRunner.outputChannel.appendLine(`Extracted body: ${requestBody.substring(0, 100)}...`);
                 HttpRequestRunner.outputChannel.appendLine(`Current pending requests: ${Array.from(pendingRequests.keys()).join(', ')}`);
                 
-                // Try to match body to the correct request based on content
+                // Try to match body to the correct request based on content and order
                 let targetRequest = null;
                 let targetKey = null;
                 
@@ -331,8 +331,7 @@ export class HttpRequestRunner {
                 HttpRequestRunner.outputChannel.appendLine(`Body analysis: isAuthBody=${isAuthBody}, isJsonBody=${isJsonBody}`);
                 
                 if (isAuthBody) {
-                    // For auth bodies, we need to handle the case where the auth request hasn't been logged yet
-                    // Look for auth/token request first
+                    // For auth bodies, find the auth/token request specifically
                     HttpRequestRunner.outputChannel.appendLine(`Looking for auth/token request...`);
                     for (const [key, request] of pendingRequests.entries()) {
                         HttpRequestRunner.outputChannel.appendLine(`Checking ${key}: includes token? ${key.includes('/auth/token') || key.includes('/token')}, has body? ${!!request.requestBody}`);
@@ -343,7 +342,7 @@ export class HttpRequestRunner {
                         }
                     }
                     
-                    // If no auth request found yet, wait and assign later when we find it
+                    // If no auth request found yet, create temporary entry for future auth request
                     if (!targetRequest) {
                         HttpRequestRunner.outputChannel.appendLine(`No auth request found yet, will look for it in subsequent lines...`);
                         // Look ahead in the next few lines to see if we find an auth request start
@@ -373,22 +372,22 @@ export class HttpRequestRunner {
                         }
                     }
                 } else if (isJsonBody) {
-                    // Find non-auth request
-                    HttpRequestRunner.outputChannel.appendLine(`Looking for non-auth POST request...`);
-                    for (const [key, request] of pendingRequests.entries()) {
-                        HttpRequestRunner.outputChannel.appendLine(`Checking ${key}: not token? ${!key.includes('/auth/token') && !key.includes('/token')}, is POST? ${request.method === 'POST'}, has body? ${!!request.requestBody}`);
+                    // For JSON bodies, find the most recent non-auth request that doesn't have a body yet
+                    HttpRequestRunner.outputChannel.appendLine(`Looking for non-auth request for JSON body...`);
+                    const requestEntries = Array.from(pendingRequests.entries()).reverse();
+                    for (const [key, request] of requestEntries) {
+                        HttpRequestRunner.outputChannel.appendLine(`Checking ${key}: not token? ${!key.includes('/auth/token') && !key.includes('/token')}, method: ${request.method}, has body? ${!!request.requestBody}, is retry? ${!!request.isRetry}`);
                         if (!key.includes('/auth/token') && !key.includes('/token') && 
-                            request.method === 'POST' && !request.requestBody) {
+                            (request.method === 'POST' || request.method === 'PUT' || request.method === 'PATCH') && 
+                            !request.requestBody && !request.isRetry) {
                             targetRequest = request;
                             targetKey = key;
                             break;
                         }
                     }
-                }
-                
-                // Fallback: look backwards to find the most recent request start
-                if (!targetRequest) {
-                    HttpRequestRunner.outputChannel.appendLine(`No content-based match found, using fallback...`);
+                } else {
+                    // For other bodies (like empty text/plain), look backwards to find the most recent request start
+                    HttpRequestRunner.outputChannel.appendLine(`Looking for any request without body (fallback)...`);
                     for (let j = i - 1; j >= 0; j--) {
                         const backLine = lines[j].trim();
                         const backStartMatch = backLine.match(/Start processing HTTP request (\w+)\s+(.+)/);
