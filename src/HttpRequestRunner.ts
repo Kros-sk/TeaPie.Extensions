@@ -5,6 +5,18 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+// Status and error message constants
+const STATUS_PASSED = 'Passed';
+const STATUS_FAILED = 'Failed';
+const ERROR_CONNECTION_REFUSED = 'Connection refused - please ensure the server is running and accessible';
+const ERROR_HOST_NOT_FOUND = 'Host not found - please check the URL in your HTTP request';
+const ERROR_TIMEOUT = 'Request timed out - server may be unresponsive';
+const ERROR_EXECUTION_FAILED = 'HTTP request execution failed';
+const ERROR_NO_REQUESTS = 'No HTTP requests were processed - check if the file contains valid HTTP requests or if there are connection issues';
+const ERROR_NO_HTTP_FOUND = 'No HTTP requests were found in this file.';
+const ERROR_HTTP_FAILED = 'HTTP Request Failed';
+const ERROR_UNKNOWN = 'Unknown error occurred';
+
 // Renamed interfaces to reflect HTTP client focus
 interface HttpRequestResults {
     RequestGroups: {
@@ -118,14 +130,14 @@ export class HttpRequestRunner {
     }
 
     private static mapConnectionError(errorMessage: string): string {
-        if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('connection refused')) {
-            return 'Connection refused - please ensure the server is running and accessible';
-        } else if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('getaddrinfo')) {
-            return 'Host not found - please check the URL in your HTTP request';
-        } else if (errorMessage.includes('timeout')) {
-            return 'Request timed out - server may be unresponsive';
+        if (errorMessage?.includes('ECONNREFUSED') || errorMessage?.includes('connection refused')) {
+            return ERROR_CONNECTION_REFUSED;
+        } else if (errorMessage?.includes('ENOTFOUND') || errorMessage?.includes('getaddrinfo')) {
+            return ERROR_HOST_NOT_FOUND;
+        } else if (errorMessage?.includes('timeout')) {
+            return ERROR_TIMEOUT;
         }
-        return 'HTTP request execution failed';
+        return ERROR_EXECUTION_FAILED;
     }
 
     private static async executeTeaPie(filePath: string): Promise<HttpRequestResults> {
@@ -140,15 +152,15 @@ export class HttpRequestRunner {
                 timeout: 60000
             });
             const result = await this.parseOutput(stdout, filePath);
-            if (!result.RequestGroups.RequestGroup[0].Requests.length) {
-                return this.createFailedResult(filePath, 'No HTTP requests were processed - check if the file contains valid HTTP requests or if there are connection issues');
+            if (!result.RequestGroups?.RequestGroup?.[0]?.Requests?.length) {
+                return this.createFailedResult(filePath, ERROR_NO_REQUESTS);
             }
             return result;
         } catch (error: any) {
             if (error.stdout) {
                 try {
                     const result = await this.parseOutput(error.stdout, filePath);
-                    if (!result.RequestGroups.RequestGroup[0].Requests.length) {
+                    if (!result.RequestGroups?.RequestGroup?.[0]?.Requests?.length) {
                         return this.createFailedResult(filePath, this.mapConnectionError(error.message || error.toString()));
                     }
                     return result;
@@ -454,7 +466,7 @@ export class HttpRequestRunner {
         }
         const requestResults: HttpRequestResult[] = uniqueRequests.map(req => ({
             Name: req.name ? req.name : (req.title ? req.title : `${req.method} ${req.url}`),
-            Status: req.responseStatus >= 200 && req.responseStatus < 400 ? 'Passed' : 'Failed',
+            Status: req.responseStatus >= 200 && req.responseStatus < 400 ? STATUS_PASSED : STATUS_FAILED,
             Duration: req.duration || '0ms',
             Request: {
                 Method: req.method,
@@ -479,11 +491,11 @@ export class HttpRequestRunner {
                         FilePath: filePath,
                         Requests: [{
                             Name: 'No HTTP requests found',
-                            Status: 'Failed',
+                            Status: STATUS_FAILED,
                             Duration: '0ms',
-                            ErrorMessage: 'No HTTP requests were found in this file.'
+                            ErrorMessage: ERROR_NO_HTTP_FOUND
                         }],
-                        Status: 'Failed',
+                        Status: STATUS_FAILED,
                         Duration: '0s'
                     }]
                 }
@@ -491,8 +503,8 @@ export class HttpRequestRunner {
         }
         if (connectionError && !requestResults.length) {
             requestResults.push({
-                Name: 'HTTP Request Failed',
-                Status: 'Failed',
+                Name: ERROR_HTTP_FAILED,
+                Status: STATUS_FAILED,
                 Duration: '0ms',
                 ErrorMessage: connectionError
             });
@@ -503,7 +515,7 @@ export class HttpRequestRunner {
                     Name: fileName,
                     FilePath: filePath,
                     Requests: requestResults,
-                    Status: requestResults.every(r => r.Status === 'Passed') ? 'Passed' : 'Failed',
+                    Status: requestResults.every(r => r.Status === STATUS_PASSED) ? STATUS_PASSED : STATUS_FAILED,
                     Duration: '0s'
                 }]
             }
@@ -535,12 +547,12 @@ export class HttpRequestRunner {
                     Name: path.basename(filePath, path.extname(filePath)),
                     FilePath: filePath,
                     Requests: [{
-                        Name: 'HTTP Request Failed',
-                        Status: 'Failed',
+                        Name: ERROR_HTTP_FAILED,
+                        Status: STATUS_FAILED,
                         Duration: '0ms',
                         ErrorMessage: errorMessage
                     }],
-                    Status: 'Failed',
+                    Status: STATUS_FAILED,
                     Duration: '0s'
                 }]
             }
@@ -612,7 +624,7 @@ export class HttpRequestRunner {
 
     // Helper to render the request header
     private static renderRequestHeader(request: HttpRequestResult): string {
-        const statusText = request.Status === 'Passed' ? 'Success' : 'Fail';
+        const statusText = request.Status === STATUS_PASSED ? 'Success' : 'Fail';
         const hasTitle = request.Name && !request.Name.match(/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\s+http/);
         if (hasTitle) {
             return `<div class="request-header">
@@ -744,7 +756,7 @@ export class HttpRequestRunner {
                 const errorRequest = results.RequestGroups.RequestGroup
                     .flatMap(group => group.Requests || [])
                     .find(request => request.ErrorMessage);
-                fallbackContent = this.renderFallbackError(errorRequest?.ErrorMessage || 'Unknown error occurred');
+                fallbackContent = this.renderFallbackError(errorRequest?.ErrorMessage || ERROR_UNKNOWN);
             } else {
                 fallbackContent = '<div class="no-results"><h2>No HTTP requests found</h2></div>';
             }
