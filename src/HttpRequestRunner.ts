@@ -769,20 +769,41 @@ export class HttpRequestRunner {
 </html>`;
     }
 
+    // Helper to format and colorize JSON bodies (copied from HttpPreviewProvider)
+    private static formatJsonString(jsonString: string): string {
+        try {
+            const obj = JSON.parse(jsonString);
+            return JSON.stringify(obj, null, 2)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+                    let cls = 'number';
+                    if (/^"/.test(match)) {
+                        if (/:$/.test(match)) {
+                            cls = 'key';
+                        } else {
+                            cls = 'string';
+                        }
+                    } else if (/true|false/.test(match)) {
+                        cls = 'boolean';
+                    } else if (/null/.test(match)) {
+                        cls = 'null';
+                    }
+                    return `<span class="json-${cls}">${match}</span>`;
+                });
+        } catch {
+            return jsonString;
+        }
+    }
+
+    // Updated formatBody to use formatJsonString for JSON
     private static formatBody(body?: string): string {
         if (!body) return '';
+        // Try to pretty-print and colorize JSON
         try {
             const formatted = JSON.stringify(JSON.parse(body), null, 2);
-            return formatted
-                .replace(/"([^\"]+)"(\s*:)/g, '<span class="json-key">"$1"</span>$2')
-                .replace(/:\s*"([^\"]*)"/g, ': <span class="json-string">"$1"</span>')
-                .replace(/:\s*(-?\d+\.?\d*(?:[eE][+-]?\d+)?)/g, ': <span class="json-number">$1</span>')
-                .replace(/:\s*(true|false)/g, ': <span class="json-boolean">$1</span>')
-                .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>')
-                .replace(/(\[|\s+)(-?\d+\.?\d*(?:[eE][+-]?\d+)?)(\s*[,\]])/g, '$1<span class="json-number">$2</span>$3')
-                .replace(/(\[|\s+)(true|false)(\s*[,\]])/g, '$1<span class="json-boolean">$2</span>$3')
-                .replace(/(\[|\s+)(null)(\s*[,\]])/g, '$1<span class="json-null">$2</span>$3')
-                .replace(/(\[|\s+)"([^\"]*)"(\s*[,\]])/g, '$1<span class="json-string">"$2"</span>$3');
+            return this.formatJsonString(formatted);
         } catch {
             return body;
         }
