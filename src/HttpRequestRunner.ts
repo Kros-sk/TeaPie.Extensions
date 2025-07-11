@@ -43,29 +43,48 @@ export class HttpRequestRunner {
     private static currentPanel: vscode.WebviewPanel | undefined;
     private static outputChannel: vscode.OutputChannel;
     private static lastRequestId = 0;
+    private static panelColumn: vscode.ViewColumn | undefined;
+    private static lastHttpUri: vscode.Uri | undefined;
 
     public static setOutputChannel(channel: vscode.OutputChannel) {
         this.outputChannel = channel;
     }
 
-    public static async runHttpFile(uri: vscode.Uri) {
-        const column = vscode.window.activeTextEditor?.viewColumn;
-        const targetColumn = column === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
+    public static async runHttpFile(uri: vscode.Uri, forceColumn?: vscode.ViewColumn) {
+        // If running from a different file, dispose the old panel to force a new split
+        if (this.currentPanel && this.lastHttpUri && this.lastHttpUri.toString() !== uri.toString()) {
+            this.currentPanel.dispose();
+            this.currentPanel = undefined;
+            this.panelColumn = undefined;
+        }
+        this.lastHttpUri = uri;
+        // Use the same split logic as HttpPreviewProvider, but allow forcing the column (for retry)
+        let targetColumn: vscode.ViewColumn;
+        if (forceColumn) {
+            targetColumn = forceColumn;
+        } else {
+            const column = vscode.window.activeTextEditor ? vscode.window.activeTextEditor.viewColumn : undefined;
+            targetColumn = column === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
+            this.panelColumn = targetColumn;
+        }
 
         if (this.currentPanel) {
-            this.currentPanel.reveal(targetColumn);
+            this.currentPanel.reveal(this.panelColumn || targetColumn);
         } else {
             this.currentPanel = vscode.window.createWebviewPanel(
                 'httpRequestResults',
                 'HTTP Request Results',
-                targetColumn,
+                this.panelColumn || targetColumn,
                 {
                     enableScripts: true,
                     retainContextWhenHidden: true
                 }
             );
+            this.panelColumn = this.currentPanel.viewColumn;
             this.currentPanel.onDidDispose(() => {
                 this.currentPanel = undefined;
+                this.panelColumn = undefined;
+                this.lastHttpUri = undefined;
             });
         }
 
@@ -527,11 +546,11 @@ export class HttpRequestRunner {
 
     private static setupRetryHandler(uri: vscode.Uri) {
         if (!this.currentPanel) return;
-        // Remove all previous listeners by resetting the webview's onDidReceiveMessage
-        this.currentPanel.webview.onDidReceiveMessage(() => {});
-        // Add a new listener for this file only
         this.currentPanel.webview.onDidReceiveMessage(message => {
-            if (message?.command === 'retry') this.runHttpFile(uri);
+            if (message?.command === 'retry' && this.lastHttpUri) {
+                // Always use the stored split column for retry
+                this.runHttpFile(this.lastHttpUri, this.panelColumn);
+            }
         });
     }
 
