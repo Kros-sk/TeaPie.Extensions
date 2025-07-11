@@ -5,21 +5,22 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-interface TeaPieResult {
-    TestSuites: {
-        TestSuite: TeaPieTestSuite[];
+// Renamed interfaces to reflect HTTP client focus
+interface HttpRequestResults {
+    RequestGroups: {
+        RequestGroup: HttpRequestGroup[];
     };
 }
 
-interface TeaPieTestSuite {
+interface HttpRequestGroup {
     Name: string;
     FilePath: string;
-    Tests: TeaPieTest[];
+    Requests: HttpRequestResult[];
     Status: string;
     Duration: string;
 }
 
-interface TeaPieTest {
+interface HttpRequestResult {
     Name: string;
     Status: string;
     Duration: string;
@@ -127,23 +128,19 @@ export class HttpRequestRunner {
         return 'HTTP request execution failed';
     }
 
-    private static async executeTeaPie(filePath: string): Promise<TeaPieResult> {
+    private static async executeTeaPie(filePath: string): Promise<HttpRequestResults> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) throw new Error('No workspace folder is open');
         const currentEnv = vscode.workspace.getConfiguration().get<string>('teapie.currentEnvironment');
         const envParam = currentEnv ? ` -e "${currentEnv}"` : '';
         const command = `teapie test "${filePath}" --no-logo --verbose${envParam}`;
-        this.outputChannel.appendLine(`Executing: ${command}`);
         try {
             const { stdout } = await execAsync(command, {
                 cwd: workspaceFolder.uri.fsPath,
                 timeout: 60000
             });
-            this.outputChannel.appendLine('==================== RAW TEAPIE OUTPUT ====================');
-            this.outputChannel.appendLine(stdout);
-            this.outputChannel.appendLine('==================== END TEAPIE OUTPUT ====================');
             const result = await this.parseOutput(stdout, filePath);
-            if (!result.TestSuites.TestSuite[0].Tests.length) {
+            if (!result.RequestGroups.RequestGroup[0].Requests.length) {
                 return this.createFailedResult(filePath, 'No HTTP requests were processed - check if the file contains valid HTTP requests or if there are connection issues');
             }
             return result;
@@ -151,7 +148,7 @@ export class HttpRequestRunner {
             if (error.stdout) {
                 try {
                     const result = await this.parseOutput(error.stdout, filePath);
-                    if (!result.TestSuites.TestSuite[0].Tests.length) {
+                    if (!result.RequestGroups.RequestGroup[0].Requests.length) {
                         return this.createFailedResult(filePath, this.mapConnectionError(error.message || error.toString()));
                     }
                     return result;
@@ -195,7 +192,7 @@ export class HttpRequestRunner {
         return result;
     }
 
-    private static async parseOutput(stdout: string, filePath: string): Promise<TeaPieResult> {
+    private static async parseOutput(stdout: string, filePath: string): Promise<HttpRequestResults> {
         const fileName = path.basename(filePath, path.extname(filePath));
         const lines = stdout.split('\n');
         const requests: any[] = [];
@@ -455,7 +452,7 @@ export class HttpRequestRunner {
                 uniqueRequests.push(req);
             }
         }
-        const tests: TeaPieTest[] = uniqueRequests.map(req => ({
+        const requestResults: HttpRequestResult[] = uniqueRequests.map(req => ({
             Name: req.name ? req.name : (req.title ? req.title : `${req.method} ${req.url}`),
             Status: req.responseStatus >= 200 && req.responseStatus < 400 ? 'Passed' : 'Failed',
             Duration: req.duration || '0ms',
@@ -471,15 +468,16 @@ export class HttpRequestRunner {
                 Headers: req.responseHeaders,
                 Body: req.responseBody,
                 Duration: req.duration || '0ms'
-            } : undefined
+            } : undefined,
+            ErrorMessage: req.ErrorMessage
         }));
         if (!foundHttpRequest) {
             return {
-                TestSuites: {
-                    TestSuite: [{
+                RequestGroups: {
+                    RequestGroup: [{
                         Name: fileName,
                         FilePath: filePath,
-                        Tests: [{
+                        Requests: [{
                             Name: 'No HTTP requests found',
                             Status: 'Failed',
                             Duration: '0ms',
@@ -491,8 +489,8 @@ export class HttpRequestRunner {
                 }
             };
         }
-        if (connectionError && !tests.length) {
-            tests.push({
+        if (connectionError && !requestResults.length) {
+            requestResults.push({
                 Name: 'HTTP Request Failed',
                 Status: 'Failed',
                 Duration: '0ms',
@@ -500,12 +498,12 @@ export class HttpRequestRunner {
             });
         }
         return {
-            TestSuites: {
-                TestSuite: [{
+            RequestGroups: {
+                RequestGroup: [{
                     Name: fileName,
                     FilePath: filePath,
-                    Tests: tests,
-                    Status: tests.every(t => t.Status === 'Passed') ? 'Passed' : 'Failed',
+                    Requests: requestResults,
+                    Status: requestResults.every(r => r.Status === 'Passed') ? 'Passed' : 'Failed',
                     Duration: '0s'
                 }]
             }
@@ -530,13 +528,13 @@ export class HttpRequestRunner {
         return bodyLines.join('\n').trim();
     }
 
-    private static createFailedResult(filePath: string, errorMessage: string): TeaPieResult {
+    private static createFailedResult(filePath: string, errorMessage: string): HttpRequestResults {
         return {
-            TestSuites: {
-                TestSuite: [{
+            RequestGroups: {
+                RequestGroup: [{
                     Name: path.basename(filePath, path.extname(filePath)),
                     FilePath: filePath,
-                    Tests: [{
+                    Requests: [{
                         Name: 'HTTP Request Failed',
                         Status: 'Failed',
                         Duration: '0ms',
@@ -613,18 +611,18 @@ export class HttpRequestRunner {
     }
 
     // Helper to render the request header
-    private static renderRequestHeader(test: TeaPieTest): string {
-        const statusText = test.Status === 'Passed' ? 'Success' : 'Fail';
-        const hasTitle = test.Name && !test.Name.match(/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\s+http/);
+    private static renderRequestHeader(request: HttpRequestResult): string {
+        const statusText = request.Status === 'Passed' ? 'Success' : 'Fail';
+        const hasTitle = request.Name && !request.Name.match(/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\s+http/);
         if (hasTitle) {
             return `<div class="request-header">
-                <h3>${this.escapeHtml(test.Name)}</h3>
-                <span class="status ${test.Status.toLowerCase()}">${statusText}</span>
+                <h3>${this.escapeHtml(request.Name)}</h3>
+                <span class="status ${request.Status.toLowerCase()}">${statusText}</span>
             </div>`;
         } else {
             return `<div class="request-header">
-                <h3>${test.Request ? `${this.escapeHtml(test.Request.Method)} ${this.escapeHtml(test.Request.Url)}` : this.escapeHtml(test.Name)}</h3>
-                <span class="status ${test.Status.toLowerCase()}">${statusText}</span>
+                <h3>${request.Request ? `${this.escapeHtml(request.Request.Method)} ${this.escapeHtml(request.Request.Url)}` : this.escapeHtml(request.Name)}</h3>
+                <span class="status ${request.Status.toLowerCase()}">${statusText}</span>
             </div>`;
         }
     }
@@ -635,15 +633,15 @@ export class HttpRequestRunner {
     }
 
     // Helper to render the request section
-    private static renderRequestSection(test: TeaPieTest, idx: number): string {
-        if (test.Request) {
-            const body = this.formatBody(test.Request.Body);
+    private static renderRequestSection(request: HttpRequestResult, idx: number): string {
+        if (request.Request) {
+            const body = this.formatBody(request.Request.Body);
             return `
                 <div class="section">
                     <h4>Request</h4>
                     <div class="method-url">
-                        <span class="method method-${this.escapeHtml(test.Request.Method.toLowerCase())}">${this.escapeHtml(test.Request.Method)}</span>
-                        <span class="url" id="url-${idx}">${this.escapeHtml(test.Request.Url)}</span>
+                        <span class="method method-${this.escapeHtml(request.Request.Method.toLowerCase())}">${this.escapeHtml(request.Request.Method)}</span>
+                        <span class="url" id="url-${idx}">${this.escapeHtml(request.Request.Url)}</span>
                         ${this.renderCopyButton(`url-${idx}`)}
                     </div>
                     ${body ? `
@@ -657,7 +655,7 @@ export class HttpRequestRunner {
                         </div>
                     </div>` : ''}
                 </div>`;
-        } else if (test.ErrorMessage && !test.Response) {
+        } else if (request.ErrorMessage && !request.Response) {
             return `
                 <div class="section">
                     <h4>Request</h4>
@@ -668,17 +666,17 @@ export class HttpRequestRunner {
     }
 
     // Helper to render the response section
-    private static renderResponseSection(test: TeaPieTest, idx: number): string {
-        if (!test.Response) return '';
-        const statusClass = test.Response.StatusCode >= 200 && test.Response.StatusCode < 300 ? 'success' : 'error';
-        const body = this.formatBody(test.Response.Body);
+    private static renderResponseSection(request: HttpRequestResult, idx: number): string {
+        if (!request.Response) return '';
+        const statusClass = request.Response.StatusCode >= 200 && request.Response.StatusCode < 300 ? 'success' : 'error';
+        const body = this.formatBody(request.Response.Body);
         return `
             <div class="section">
                 <h4>Response</h4>
                 <div class="status-line">
-                    <span class="status-code status-${statusClass}">${test.Response.StatusCode}</span>
-                    <span class="status-text">${this.escapeHtml(test.Response.StatusText)}</span>
-                    <span class="duration">${this.escapeHtml(test.Response.Duration)}</span>
+                    <span class="status-code status-${statusClass}">${request.Response.StatusCode}</span>
+                    <span class="status-text">${this.escapeHtml(request.Response.StatusText)}</span>
+                    <span class="duration">${this.escapeHtml(request.Response.Duration)}</span>
                 </div>
                 ${body ? `
                 <div class="body-container">
@@ -694,12 +692,12 @@ export class HttpRequestRunner {
     }
 
     // Helper to render the error section
-    private static renderErrorSection(test: TeaPieTest): string {
-        if (!test.ErrorMessage) return '';
+    private static renderErrorSection(request: HttpRequestResult): string {
+        if (!request.ErrorMessage) return '';
         return `
             <div class="section error">
                 <h4>Error</h4>
-                <pre class="error-message">${this.escapeHtml(test.ErrorMessage)}</pre>
+                <pre class="error-message">${this.escapeHtml(request.ErrorMessage)}</pre>
             </div>`;
     }
 
@@ -713,18 +711,18 @@ export class HttpRequestRunner {
             </div>`;
     }
 
-    private static getResultsContent(results: TeaPieResult, fileUri: vscode.Uri): string {
+    private static getResultsContent(results: HttpRequestResults, fileUri: vscode.Uri): string {
         const fileName = path.basename(fileUri.fsPath);
         let requestsHtml = '';
         let hasRequests = false;
-        if (results.TestSuites?.TestSuite) {
-            results.TestSuites.TestSuite.forEach(suite => {
-                suite.Tests?.forEach((test, idx) => {
-                    if (test.Request || test.ErrorMessage) hasRequests = true;
-                    const headerHtml = this.renderRequestHeader(test);
-                    const requestHtml = this.renderRequestSection(test, idx);
-                    const responseHtml = this.renderResponseSection(test, idx);
-                    const errorHtml = this.renderErrorSection(test);
+        if (results.RequestGroups?.RequestGroup) {
+            results.RequestGroups.RequestGroup.forEach(group => {
+                group.Requests?.forEach((request, idx) => {
+                    if (request.Request || request.ErrorMessage) hasRequests = true;
+                    const headerHtml = this.renderRequestHeader(request);
+                    const requestHtml = this.renderRequestSection(request, idx);
+                    const responseHtml = this.renderResponseSection(request, idx);
+                    const errorHtml = this.renderErrorSection(request);
                     requestsHtml += `
                         <div class="request-item">
                             ${headerHtml}
@@ -739,14 +737,14 @@ export class HttpRequestRunner {
         }
         let fallbackContent = '';
         if (!hasRequests) {
-            const hasErrors = results.TestSuites?.TestSuite?.some(suite => 
-                suite.Tests?.some(test => test.ErrorMessage)
+            const hasErrors = results.RequestGroups?.RequestGroup?.some(group => 
+                group.Requests?.some(request => request.ErrorMessage)
             );
             if (hasErrors) {
-                const errorTest = results.TestSuites.TestSuite
-                    .flatMap(suite => suite.Tests || [])
-                    .find(test => test.ErrorMessage);
-                fallbackContent = this.renderFallbackError(errorTest?.ErrorMessage || 'Unknown error occurred');
+                const errorRequest = results.RequestGroups.RequestGroup
+                    .flatMap(group => group.Requests || [])
+                    .find(request => request.ErrorMessage);
+                fallbackContent = this.renderFallbackError(errorRequest?.ErrorMessage || 'Unknown error occurred');
             } else {
                 fallbackContent = '<div class="no-results"><h2>No HTTP requests found</h2></div>';
             }
