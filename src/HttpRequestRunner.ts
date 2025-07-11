@@ -580,6 +580,115 @@ export class HttpRequestRunner {
 </html>`;
     }
 
+    // Helper to sanitize HTML
+    private static escapeHtml(str: string | undefined): string {
+        if (!str) return '';
+        return str.replace(/[&<>'"`]/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;', '`': '&#96;'
+        }[c] || c));
+    }
+
+    // Helper to render the request header
+    private static renderRequestHeader(test: TeaPieTest): string {
+        const statusText = test.Status === 'Passed' ? 'Success' : 'Fail';
+        const hasTitle = test.Name && !test.Name.match(/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\s+http/);
+        if (hasTitle) {
+            return `<div class="request-header">
+                <h3>${this.escapeHtml(test.Name)}</h3>
+                <span class="status ${test.Status.toLowerCase()}">${statusText}</span>
+            </div>`;
+        } else {
+            return `<div class="request-header">
+                <h3>${test.Request ? `${this.escapeHtml(test.Request.Method)} ${this.escapeHtml(test.Request.Url)}` : this.escapeHtml(test.Name)}</h3>
+                <span class="status ${test.Status.toLowerCase()}">${statusText}</span>
+            </div>`;
+        }
+    }
+
+    // Helper to render the copy button
+    private static renderCopyButton(targetId: string, inline = false): string {
+        return `<button class="copy-btn${inline ? ' inline-copy-btn' : ''}" onclick="copyToClipboard(this, '${this.escapeHtml(targetId)}')">📋 Copy</button>`;
+    }
+
+    // Helper to render the request section
+    private static renderRequestSection(test: TeaPieTest, idx: number): string {
+        if (test.Request) {
+            const body = this.formatBody(test.Request.Body);
+            return `
+                <div class="section">
+                    <h4>Request</h4>
+                    <div class="method-url">
+                        <span class="method method-${this.escapeHtml(test.Request.Method.toLowerCase())}">${this.escapeHtml(test.Request.Method)}</span>
+                        <span class="url" id="url-${idx}">${this.escapeHtml(test.Request.Url)}</span>
+                        ${this.renderCopyButton(`url-${idx}`)}
+                    </div>
+                    ${body ? `
+                    <div class="body-container">
+                        <div class="body-header">
+                            <span>Request Body</span>
+                        </div>
+                        <div class="code-block">
+                            <pre class="body json" id="request-${idx}">${body}</pre>
+                            ${this.renderCopyButton(`request-${idx}`, true)}
+                        </div>
+                    </div>` : ''}
+                </div>`;
+        } else if (test.ErrorMessage && !test.Response) {
+            return `
+                <div class="section">
+                    <h4>Request</h4>
+                    <div class="error-info">Unable to process HTTP request</div>
+                </div>`;
+        }
+        return '';
+    }
+
+    // Helper to render the response section
+    private static renderResponseSection(test: TeaPieTest, idx: number): string {
+        if (!test.Response) return '';
+        const statusClass = test.Response.StatusCode >= 200 && test.Response.StatusCode < 300 ? 'success' : 'error';
+        const body = this.formatBody(test.Response.Body);
+        return `
+            <div class="section">
+                <h4>Response</h4>
+                <div class="status-line">
+                    <span class="status-code status-${statusClass}">${test.Response.StatusCode}</span>
+                    <span class="status-text">${this.escapeHtml(test.Response.StatusText)}</span>
+                    <span class="duration">${this.escapeHtml(test.Response.Duration)}</span>
+                </div>
+                ${body ? `
+                <div class="body-container">
+                    <div class="body-header">
+                        <span>Response Body</span>
+                    </div>
+                    <div class="code-block">
+                        <pre class="body json" id="response-${idx}">${body}</pre>
+                        ${this.renderCopyButton(`response-${idx}`, true)}
+                    </div>
+                </div>` : ''}
+            </div>`;
+    }
+
+    // Helper to render the error section
+    private static renderErrorSection(test: TeaPieTest): string {
+        if (!test.ErrorMessage) return '';
+        return `
+            <div class="section error">
+                <h4>Error</h4>
+                <pre class="error-message">${this.escapeHtml(test.ErrorMessage)}</pre>
+            </div>`;
+    }
+
+    // Helper to render the fallback error container
+    private static renderFallbackError(errorMessage: string): string {
+        return `
+            <div class="error-container">
+                <div class="error-icon">⚠️</div>
+                <div class="error-title">Failed to execute HTTP requests</div>
+                <div class="error-message">${this.escapeHtml(errorMessage)}</div>
+            </div>`;
+    }
+
     private static getResultsContent(results: TeaPieResult, fileUri: vscode.Uri): string {
         const fileName = path.basename(fileUri.fsPath);
         let requestsHtml = '';
@@ -588,83 +697,10 @@ export class HttpRequestRunner {
             results.TestSuites.TestSuite.forEach(suite => {
                 suite.Tests?.forEach((test, idx) => {
                     if (test.Request || test.ErrorMessage) hasRequests = true;
-                    const statusText = test.Status === 'Passed' ? 'Success' : 'Fail';
-                    let requestHtml = '';
-                    let headerHtml = '';
-                    // Use the title as the main header if present, otherwise METHOD URL
-                    const hasTitle = test.Name && !test.Name.match(/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\s+http/);
-                    if (hasTitle) {
-                        headerHtml = `<div class="request-header">
-                            <h3>${test.Name}</h3>
-                            <span class="status ${test.Status.toLowerCase()}">${statusText}</span>
-                        </div>`;
-                        // Do NOT add method/url detail line here
-                    } else {
-                        headerHtml = `<div class="request-header">
-                            <h3>${test.Request ? `${test.Request.Method} ${test.Request.Url}` : test.Name}</h3>
-                            <span class="status ${test.Status.toLowerCase()}">${statusText}</span>
-                        </div>`;
-                    }
-                    if (test.Request) {
-                        const body = this.formatBody(test.Request.Body);
-                        requestHtml = `
-                            <div class="section">
-                                <h4>Request</h4>
-                                <div class="method-url">
-                                    <span class="method method-${test.Request.Method.toLowerCase()}">${test.Request.Method}</span>
-                                    <span class="url" id="url-${idx}">${test.Request.Url}</span>
-                                    <button class="copy-btn" onclick="copyToClipboard(this, 'url-${idx}')">📋 Copy </button>
-                                </div>
-                                ${body ? `
-                                <div class="body-container">
-                                    <div class="body-header">
-                                        <span>Request Body</span>
-                                    </div>
-                                    <div class="code-block">
-                                        <pre class="body json" id="request-${idx}">${body}</pre>
-                                        <button class="copy-btn inline-copy-btn" onclick="copyToClipboard(this, 'request-${idx}')">📋 Copy </button>
-                                    </div>
-                                </div>` : ''}
-                            </div>`;
-                    } else if (test.ErrorMessage && !test.Response) {
-                        requestHtml = `
-                            <div class="section">
-                                <h4>Request</h4>
-                                <div class="error-info">Unable to process HTTP request</div>
-                            </div>`;
-                    }
-                    let responseHtml = '';
-                    if (test.Response) {
-                        const statusClass = test.Response.StatusCode >= 200 && test.Response.StatusCode < 300 ? 'success' : 'error';
-                        const body = this.formatBody(test.Response.Body);
-                        responseHtml = `
-                            <div class="section">
-                                <h4>Response</h4>
-                                <div class="status-line">
-                                    <span class="status-code status-${statusClass}">${test.Response.StatusCode}</span>
-                                    <span class="status-text">${test.Response.StatusText}</span>
-                                    <span class="duration">${test.Response.Duration}</span>
-                                </div>
-                                ${body ? `
-                                <div class="body-container">
-                                    <div class="body-header">
-                                        <span>Response Body</span>
-                                    </div>
-                                    <div class="code-block">
-                                        <pre class="body json" id="response-${idx}">${body}</pre>
-                                        <button class="copy-btn inline-copy-btn" onclick="copyToClipboard(this, 'response-${idx}')">📋 Copy</button>
-                                    </div>
-                                </div>` : ''}
-                            </div>`;
-                    }
-                    let errorHtml = '';
-                    if (test.ErrorMessage) {
-                        errorHtml = `
-                            <div class="section error">
-                                <h4>Error</h4>
-                                <pre class="error-message">${test.ErrorMessage}</pre>
-                            </div>`;
-                    }
+                    const headerHtml = this.renderRequestHeader(test);
+                    const requestHtml = this.renderRequestSection(test, idx);
+                    const responseHtml = this.renderResponseSection(test, idx);
+                    const errorHtml = this.renderErrorSection(test);
                     requestsHtml += `
                         <div class="request-item">
                             ${headerHtml}
@@ -686,12 +722,7 @@ export class HttpRequestRunner {
                 const errorTest = results.TestSuites.TestSuite
                     .flatMap(suite => suite.Tests || [])
                     .find(test => test.ErrorMessage);
-                fallbackContent = `
-                    <div class="error-container">
-                        <div class="error-icon">⚠️</div>
-                        <div class="error-title">Failed to execute HTTP requests</div>
-                        <div class="error-message">${errorTest?.ErrorMessage || 'Unknown error occurred'}</div>
-                    </div>`;
+                fallbackContent = this.renderFallbackError(errorTest?.ErrorMessage || 'Unknown error occurred');
             } else {
                 fallbackContent = '<div class="no-results"><h2>No HTTP requests found</h2></div>';
             }
@@ -705,7 +736,7 @@ export class HttpRequestRunner {
 </head>
 <body>
     <div class="header">
-        <h1>HTTP Request Results: <span class="filename">${fileName}</span></h1>
+        <h1>HTTP Request Results: <span class="filename">${this.escapeHtml(fileName)}</span></h1>
         <button class="retry-btn" id="retry-btn">Retry</button>
     </div>
     ${requestsHtml || fallbackContent}
