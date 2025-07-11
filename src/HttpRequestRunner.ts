@@ -45,12 +45,15 @@ export class HttpRequestRunner {
     private static lastRequestId = 0;
     private static panelColumn: vscode.ViewColumn | undefined;
     private static lastHttpUri: vscode.Uri | undefined;
+    private static isRunning = false;
 
     public static setOutputChannel(channel: vscode.OutputChannel) {
         this.outputChannel = channel;
     }
 
     public static async runHttpFile(uri: vscode.Uri, forceColumn?: vscode.ViewColumn) {
+        if (this.isRunning) return; // Prevent concurrent runs
+        this.isRunning = true;
         // If running from a different file, dispose the old panel to force a new split
         if (this.currentPanel && this.lastHttpUri && this.lastHttpUri.toString() !== uri.toString()) {
             this.currentPanel.dispose();
@@ -108,6 +111,8 @@ export class HttpRequestRunner {
                 this.setupRetryHandler(uri);
             }
             vscode.window.showErrorMessage(errorMessage);
+        } finally {
+            this.isRunning = false;
         }
     }
 
@@ -547,7 +552,7 @@ export class HttpRequestRunner {
     private static setupRetryHandler(uri: vscode.Uri) {
         if (!this.currentPanel) return;
         this.currentPanel.webview.onDidReceiveMessage(message => {
-            if (message?.command === 'retry' && this.lastHttpUri) {
+            if (message?.command === 'retry' && this.lastHttpUri && !this.isRunning) {
                 // Always use the stored split column for retry
                 this.runHttpFile(this.lastHttpUri, this.panelColumn);
             }
