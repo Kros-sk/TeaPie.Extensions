@@ -39,6 +39,7 @@ interface HttpRequestResult {
     Request?: {
         Method: string;
         Url: string;
+        TemplateUrl?: string;
         Headers: { [key: string]: string };
         Body?: string;
     };
@@ -170,11 +171,11 @@ export class HttpRequestRunner {
         }
     }
 
-    private static async parseHttpFileForNames(filePath: string): Promise<Array<{name?: string, title?: string, method: string, url: string}>> {
+    private static async parseHttpFileForNames(filePath: string): Promise<Array<{name?: string, title?: string, method: string, url: string, templateUrl?: string}>> {
         const fs = await import('fs/promises');
         const content = await fs.readFile(filePath, 'utf8');
         const lines = content.split(/\r?\n/);
-        const result: Array<{name?: string, title?: string, method: string, url: string}> = [];
+        const result: Array<{name?: string, title?: string, method: string, url: string, templateUrl?: string}> = [];
         let lastName: string | undefined = undefined;
         let lastTitle: string | undefined = undefined;
         for (let i = 0; i < lines.length; i++) {
@@ -191,11 +192,13 @@ export class HttpRequestRunner {
             }
             const methodMatch = line.match(/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\s+(.+)/i);
             if (methodMatch) {
+                const templateUrl = methodMatch[2].trim();
                 result.push({
                     name: lastName,
                     title: lastTitle,
                     method: methodMatch[1].toUpperCase(),
-                    url: methodMatch[2].trim()
+                    url: templateUrl,
+                    templateUrl: templateUrl
                 });
                 lastName = undefined;
                 lastTitle = undefined;
@@ -251,12 +254,14 @@ export class HttpRequestRunner {
                 const url = startMatch[2];
                 let name: string | null = null;
                 let title: string | null = null;
-                // Only assign name/title for user requests (not auth/token)
+                let templateUrl: string | null = null;
+                // Only assign name/title/templateUrl for user requests (not auth/token)
                 const isUserRequest = !url.includes('/auth/token') && !url.includes('/token');
                 if (isUserRequest && httpFileRequestIdx < httpFileRequests.length) {
                     const reqInfo = httpFileRequests[httpFileRequestIdx];
                     name = reqInfo.name || null;
                     title = reqInfo.title || null;
+                    templateUrl = reqInfo.templateUrl || null;
                     httpFileRequestIdx++;
                 }
                 if (isNextRequestRetry) {
@@ -268,7 +273,7 @@ export class HttpRequestRunner {
                         }
                     }
                     pendingRequests.set(retryKey, {
-                        method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: retryKey, isTemporary: false, isRetry: true, originalRequest: null, title, name
+                        method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: retryKey, isTemporary: false, isRetry: true, originalRequest: null, title, name, templateUrl
                     });
                     isNextRequestRetry = false;
                 } else {
@@ -289,11 +294,12 @@ export class HttpRequestRunner {
                         existingRequest.uniqueKey = requestKey;
                         existingRequest.title = title;
                         existingRequest.name = name;
+                        existingRequest.templateUrl = templateUrl;
                         existingRequest.url = url;
                         pendingRequests.set(requestKey, existingRequest);
                     } else {
                         pendingRequests.set(requestKey, {
-                            method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: requestKey, isTemporary: false, isRetry: false, title, name
+                            method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: requestKey, isTemporary: false, isRetry: false, title, name, templateUrl
                         });
                     }
                 }
@@ -464,25 +470,31 @@ export class HttpRequestRunner {
                 uniqueRequests.push(req);
             }
         }
-        const requestResults: HttpRequestResult[] = uniqueRequests.map(req => ({
-            Name: req.name ? req.name : (req.title ? req.title : `${req.method} ${req.url}`),
-            Status: req.responseStatus >= 200 && req.responseStatus < 400 ? STATUS_PASSED : STATUS_FAILED,
-            Duration: req.duration || '0ms',
-            Request: {
-                Method: req.method,
-                Url: req.url,
-                Headers: req.requestHeaders,
-                Body: req.requestBody
-            },
-            Response: req.responseStatus ? {
-                StatusCode: req.responseStatus,
-                StatusText: req.responseStatusText || 'OK',
-                Headers: req.responseHeaders,
-                Body: req.responseBody,
-                Duration: req.duration || '0ms'
-            } : undefined,
-            ErrorMessage: req.ErrorMessage
-        }));
+        const requestResults: HttpRequestResult[] = uniqueRequests.map(req => {
+            const resolvedUrl = req.url;
+            const templateUrl = req.templateUrl || req.url;
+            
+            return {
+                Name: req.name ? req.name : (req.title ? req.title : `${req.method} ${resolvedUrl}`),
+                Status: req.responseStatus >= 200 && req.responseStatus < 400 ? STATUS_PASSED : STATUS_FAILED,
+                Duration: req.duration || '0ms',
+                Request: {
+                    Method: req.method,
+                    Url: resolvedUrl,
+                    TemplateUrl: templateUrl !== resolvedUrl ? templateUrl : undefined,
+                    Headers: req.requestHeaders,
+                    Body: req.requestBody
+                },
+                Response: req.responseStatus ? {
+                    StatusCode: req.responseStatus,
+                    StatusText: req.responseStatusText || 'OK',
+                    Headers: req.responseHeaders,
+                    Body: req.responseBody,
+                    Duration: req.duration || '0ms'
+                } : undefined,
+                ErrorMessage: req.ErrorMessage
+            };
+        });
         if (!foundHttpRequest) {
             return {
                 RequestGroups: {
@@ -614,6 +626,12 @@ export class HttpRequestRunner {
 </html>`;
     }
 
+    private static resolveUrlTemplate(template: string, variables: Record<string, string>): string {
+        return template.replace(/{{\s*([\w.]+)\s*}}/g, (match, varName) => {
+            return variables[varName] !== undefined ? variables[varName] : match;
+        });
+    }
+
     // Helper to sanitize HTML
     private static escapeHtml(str: string | undefined): string {
         if (!str) return '';
@@ -648,12 +666,16 @@ export class HttpRequestRunner {
     private static renderRequestSection(request: HttpRequestResult, idx: number): string {
         if (request.Request) {
             const body = this.formatBody(request.Request.Body);
+            const resolvedUrl = this.escapeHtml(request.Request.Url);
+            const templateUrl = this.escapeHtml(request.Request.TemplateUrl || request.Request.Url);
+            const hasTemplate = request.Request.TemplateUrl && request.Request.TemplateUrl !== request.Request.Url;
             return `
                 <div class="section">
                     <h4>Request</h4>
                     <div class="method-url">
                         <span class="method method-${this.escapeHtml(request.Request.Method.toLowerCase())}">${this.escapeHtml(request.Request.Method)}</span>
-                        <span class="url" id="url-${idx}">${this.escapeHtml(request.Request.Url)}</span>
+                        <span class="url" id="url-${idx}" data-resolved="${resolvedUrl}" data-template="${templateUrl}">${resolvedUrl}</span>
+                        ${hasTemplate ? `<button class="toggle-url-btn" id="toggle-url-btn-${idx}" data-idx="${idx}">Show Variables</button>` : ''}
                         ${this.renderCopyButton(`url-${idx}`)}
                     </div>
                     ${body ? `
@@ -779,7 +801,6 @@ export class HttpRequestRunner {
 </html>`;
     }
 
-    // Helper to format and colorize JSON bodies (copied from HttpPreviewProvider)
     private static formatJsonString(jsonString: string): string {
         try {
             const obj = JSON.parse(jsonString);
@@ -807,7 +828,6 @@ export class HttpRequestRunner {
         }
     }
 
-    // Updated formatBody to use formatJsonString for JSON
     private static formatBody(body?: string): string {
         if (!body) return '';
         // Try to pretty-print and colorize JSON
@@ -871,6 +891,8 @@ export class HttpRequestRunner {
             .error-message { color: var(--vscode-terminal-ansiRed); }
             .error-info { padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 6px; color: var(--vscode-descriptionForeground); font-style: italic; }
             .no-results { text-align: center; padding: 60px 20px; color: var(--vscode-descriptionForeground); }
+            .toggle-url-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px; font-weight: 500; }
+            .toggle-url-btn:hover { background: var(--vscode-button-hoverBackground); }
         `;
     }
 
@@ -897,6 +919,24 @@ export class HttpRequestRunner {
                     btn.style.background = '';
                 }, 1500);
             }
+
+            // Toggle URL logic
+            document.querySelectorAll('.toggle-url-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const idx = btn.getAttribute('data-idx');
+                    const urlSpan = document.getElementById('url-' + idx);
+                    if (!urlSpan) return;
+                    const resolved = urlSpan.getAttribute('data-resolved');
+                    const template = urlSpan.getAttribute('data-template');
+                    if (btn.textContent === 'Show Variables') {
+                        urlSpan.textContent = template;
+                        btn.textContent = 'Show Resolved';
+                    } else {
+                        urlSpan.textContent = resolved;
+                        btn.textContent = 'Show Variables';
+                    }
+                });
+            });
         `;
     }
 }
