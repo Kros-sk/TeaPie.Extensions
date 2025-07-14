@@ -17,7 +17,6 @@ const ERROR_NO_HTTP_FOUND = 'No HTTP requests were found in this file.';
 const ERROR_HTTP_FAILED = 'HTTP Request Failed';
 const ERROR_UNKNOWN = 'Unknown error occurred';
 
-// Renamed interfaces to reflect HTTP client focus
 interface HttpRequestResults {
     RequestGroups: {
         RequestGroup: HttpRequestGroup[];
@@ -30,6 +29,32 @@ interface HttpRequestGroup {
     Requests: HttpRequestResult[];
     Status: string;
     Duration: string;
+}
+
+interface HttpTestResult {
+    Name: string;
+    Passed: boolean;
+    Message?: string;
+}
+
+interface InternalRequest {
+    method: string;
+    url: string;
+    requestHeaders: { [key: string]: string };
+    responseHeaders: { [key: string]: string };
+    uniqueKey?: string;
+    isTemporary?: boolean;
+    isRetry?: boolean;
+    originalRequest?: InternalRequest | null;
+    title?: string | null;
+    name?: string | null;
+    templateUrl?: string | null;
+    requestBody?: string;
+    responseStatus?: number;
+    responseStatusText?: string;
+    responseBody?: string;
+    duration?: string;
+    ErrorMessage?: string;
 }
 
 interface HttpRequestResult {
@@ -51,6 +76,7 @@ interface HttpRequestResult {
         Duration: string;
     };
     ErrorMessage?: string;
+    Tests?: HttpTestResult[];
 }
 
 export class HttpRequestRunner {
@@ -210,8 +236,12 @@ export class HttpRequestRunner {
     private static async parseOutput(stdout: string, filePath: string): Promise<HttpRequestResults> {
         const fileName = path.basename(filePath, path.extname(filePath));
         const lines = stdout.split('\n');
-        const requests: any[] = [];
-        const pendingRequests: Map<string, any> = new Map();
+        const requests: InternalRequest[] = [];
+        // Map: logicalKey (method+url) => array of test results
+        const requestTests: Map<string, HttpTestResult[]> = new Map();
+        // Buffer for test results found before a request is finalized
+        let bufferedTests: HttpTestResult[] = [];
+        const pendingRequests: Map<string, InternalRequest> = new Map();
         let connectionError: string | null = null;
         let requestCounter = 0;
         let isNextRequestRetry = false;
@@ -221,6 +251,33 @@ export class HttpRequestRunner {
         let httpFileRequestIdx = 0;
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
+
+            // --- Parse test results ---
+            // Supports all TeaPie test types: built-in directives, custom directives, and C# test scripts
+            // Example: [12:34:56 INF] Test Passed: 'TestName' in 1 ms
+            // Example: [12:34:56 ERR] Test 'TestName' failed: after 1 ms
+            const testPassedMatch = line.match(/Test Passed:\s*'(.+?)'\s+in\s+\d+\s*ms/i);
+            if (testPassedMatch) {
+                const testName = testPassedMatch[1];
+                bufferedTests.push({ Name: testName, Passed: true, Message: '' });
+                continue;
+            }
+            
+            const testFailedMatch = line.match(/Test '(.+?)' failed:/i);
+            if (testFailedMatch) {
+                const testName = testFailedMatch[1];
+                // Look ahead for the reason on the next line
+                let message = '';
+                if (i + 1 < lines.length) {
+                    const nextLine = lines[i + 1].trim();
+                    const reasonMatch = nextLine.match(/Reason:\s*(.+)/);
+                    if (reasonMatch) {
+                        message = reasonMatch[1];
+                    }
+                }
+                bufferedTests.push({ Name: testName, Passed: false, Message: message });
+                continue;
+            }
             if (line.match(/Start processing HTTP request/)) foundHttpRequest = true;
             if (line.includes('DBG] Retry attempt number')) { isNextRequestRetry = true; continue; }
             if (line.includes('No connection could be made because the target machine actively refused it')) {
@@ -250,6 +307,14 @@ export class HttpRequestRunner {
             }
             const startMatch = line.match(/Start processing HTTP request (\w+)\s+(.+)/);
             if (startMatch) {
+                // If there are buffered tests and at least one request has been finalized, attach them to the last finalized request
+                if (bufferedTests.length > 0 && requests.length > 0) {
+                    const lastReq = requests[requests.length - 1];
+                    const logicalKey = `${lastReq.method} ${lastReq.url}`;
+                    if (!requestTests.has(logicalKey)) requestTests.set(logicalKey, []);
+                    requestTests.get(logicalKey)!.push(...bufferedTests);
+                    bufferedTests = [];
+                }
                 const method = startMatch[1];
                 const url = startMatch[2];
                 let name: string | null = null;
@@ -432,6 +497,13 @@ export class HttpRequestRunner {
                 }
                 if (foundRequest && foundKey) {
                     foundRequest.duration = duration;
+                    // Attach any buffered test results to this request
+                    if (bufferedTests.length > 0) {
+                        const logicalKey = `${foundRequest.method} ${foundRequest.url}`;
+                        if (!requestTests.has(logicalKey)) requestTests.set(logicalKey, []);
+                        requestTests.get(logicalKey)!.push(...bufferedTests);
+                        bufferedTests = [];
+                    }
                     if (foundRequest.isRetry && foundRequest.originalRequest) {
                         foundRequest.originalRequest.responseStatus = foundRequest.responseStatus || statusCode;
                         foundRequest.originalRequest.responseStatusText = foundRequest.responseStatusText;
@@ -445,6 +517,14 @@ export class HttpRequestRunner {
                 }
                 continue;
             }
+        }
+        // Attach any remaining buffered tests to the last finalized request (if any)
+        if (bufferedTests.length > 0 && requests.length > 0) {
+            const lastReq = requests[requests.length - 1];
+            const logicalKey = `${lastReq.method} ${lastReq.url}`;
+            if (!requestTests.has(logicalKey)) requestTests.set(logicalKey, []);
+            requestTests.get(logicalKey)!.push(...bufferedTests);
+            bufferedTests = [];
         }
         // Filter out duplicate requests by name (or by method+url if no name), keeping only the last occurrence
         // Improved deduplication: for each logical request (method+url), keep only the last occurrence, preferring named/title requests
@@ -473,10 +553,16 @@ export class HttpRequestRunner {
         const requestResults: HttpRequestResult[] = uniqueRequests.map(req => {
             const resolvedUrl = req.url;
             const templateUrl = req.templateUrl || req.url;
+            const logicalKey = `${req.method} ${resolvedUrl}`;
+            const tests = requestTests.get(logicalKey) || [];
+            
+            // If any test failed, mark request as failed
+            let status = req.responseStatus >= 200 && req.responseStatus < 400 ? STATUS_PASSED : STATUS_FAILED;
+            if (tests.length > 0 && tests.some(t => !t.Passed)) status = STATUS_FAILED;
             
             return {
                 Name: req.name ? req.name : (req.title ? req.title : `${req.method} ${resolvedUrl}`),
-                Status: req.responseStatus >= 200 && req.responseStatus < 400 ? STATUS_PASSED : STATUS_FAILED,
+                Status: status,
                 Duration: req.duration || '0ms',
                 Request: {
                     Method: req.method,
@@ -492,7 +578,8 @@ export class HttpRequestRunner {
                     Body: req.responseBody,
                     Duration: req.duration || '0ms'
                 } : undefined,
-                ErrorMessage: req.ErrorMessage
+                ErrorMessage: req.ErrorMessage,
+                Tests: tests
             };
         });
         if (!foundHttpRequest) {
@@ -626,12 +713,6 @@ export class HttpRequestRunner {
 </html>`;
     }
 
-    private static resolveUrlTemplate(template: string, variables: Record<string, string>): string {
-        return template.replace(/{{\s*([\w.]+)\s*}}/g, (match, varName) => {
-            return variables[varName] !== undefined ? variables[varName] : match;
-        });
-    }
-
     // Helper to sanitize HTML
     private static escapeHtml(str: string | undefined): string {
         if (!str) return '';
@@ -662,8 +743,29 @@ export class HttpRequestRunner {
         return `<button class="copy-btn${inline ? ' inline-copy-btn' : ''}" onclick="copyToClipboard(this, '${this.escapeHtml(targetId)}')">📋 Copy</button>`;
     }
 
-    // Helper to render the request section
+    // Helper to render the request section, now includes test results
     private static renderRequestSection(request: HttpRequestResult, idx: number): string {
+        let testHtml = '';
+        if (request.Tests && request.Tests.length > 0) {
+            const allPassed = request.Tests.every(t => t.Passed);
+            const summaryClass = allPassed ? 'test-passed-summary' : 'test-failed-summary';
+            const summaryText = allPassed ? '👍 All tests passed' : '👎 Some tests failed';
+            testHtml = `
+                <div class="test-section">
+                    <h4>Tests</h4>
+                    <div class="test-summary ${summaryClass}">${summaryText}</div>
+                    <ul class="test-list">
+                        ${request.Tests.map(test => `
+                            <li class="test-item ${test.Passed ? 'test-passed' : 'test-failed'}">
+                                <span class="test-status">${test.Passed ? '✔️' : '❌'}</span>
+                                <span class="test-name">${this.escapeHtml(test.Name)}</span>
+                                ${test.Message ? `<span class="test-message">${this.escapeHtml(test.Message)}</span>` : ''}
+                            </li>
+                        `).join('')}
+                    </ul>
+                </div>
+            `;
+        }
         if (request.Request) {
             const body = this.formatBody(request.Request.Body);
             const resolvedUrl = this.escapeHtml(request.Request.Url);
@@ -688,15 +790,17 @@ export class HttpRequestRunner {
                             ${this.renderCopyButton(`request-${idx}`, true)}
                         </div>
                     </div>` : ''}
+                    ${testHtml}
                 </div>`;
         } else if (request.ErrorMessage && !request.Response) {
             return `
                 <div class="section">
                     <h4>Request</h4>
                     <div class="error-info">Unable to process HTTP request</div>
+                    ${testHtml}
                 </div>`;
         }
-        return '';
+        return testHtml;
     }
 
     // Helper to render the response section
@@ -893,6 +997,19 @@ export class HttpRequestRunner {
             .no-results { text-align: center; padding: 60px 20px; color: var(--vscode-descriptionForeground); }
             .toggle-url-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px; font-weight: 500; }
             .toggle-url-btn:hover { background: var(--vscode-button-hoverBackground); }
+            /* Test results styles */
+            .test-section { margin-top: 18px; }
+            .test-section h4 { margin-bottom: 8px; }
+            .test-summary { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+            .test-passed-summary { color: var(--vscode-terminal-ansiGreen); }
+            .test-failed-summary { color: var(--vscode-terminal-ansiRed); }
+            .test-list { list-style: none; padding: 0; margin: 0; }
+            .test-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; }
+            .test-passed { color: var(--vscode-terminal-ansiGreen); }
+            .test-failed { color: var(--vscode-terminal-ansiRed); font-weight: bold; }
+            .test-status { font-size: 16px; margin-right: 4px; }
+            .test-name { font-family: monospace; font-weight: 500; }
+            .test-message { margin-left: 8px; color: var(--vscode-descriptionForeground); font-style: italic; }
         `;
     }
 
