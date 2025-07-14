@@ -957,26 +957,26 @@ export class HttpRequestRunner {
             .loading-text { font-size: 16px; color: var(--vscode-descriptionForeground); }
             .error-container { padding: 30px; text-align: center; }
             .error-icon { font-size: 48px; margin-bottom: 20px; }
-            .error-title { font-size: 20px; color: var(--vscode-terminal-ansiRed); margin-bottom: 15px; font-weight: bold; }
-            .error-message { background: var(--vscode-textCodeBlock-background); padding: 15px; border-radius: 6px; border-left: 4px solid var(--vscode-terminal-ansiRed); font-family: monospace; text-align: left; white-space: pre-wrap; }
+            .error-title { font-size: 20px; color: var(--vscode-errorForeground); margin-bottom: 15px; font-weight: bold; }
+            .error-message { background: var(--vscode-textCodeBlock-background); padding: 15px; border-radius: 6px; border-left: 4px solid var(--vscode-errorForeground); font-family: monospace; text-align: left; white-space: pre-wrap; }
             .request-item { margin-bottom: 30px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; overflow: hidden; }
             .request-header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: var(--vscode-editor-inactiveSelectionBackground); border-bottom: 1px solid var(--vscode-panel-border); }
             .request-header h3 { margin: 0; font-size: 16px; }
             .status { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
-            .status.passed { background: var(--vscode-terminal-ansiGreen); color: white; }
-            .status.failed { background: var(--vscode-terminal-ansiRed); color: white; }
+            .status.passed { background: var(--vscode-testing-iconPassed); color: var(--vscode-button-foreground); }
+            .status.failed { background: var(--vscode-testing-iconFailed); color: var(--vscode-button-foreground); }
             .request-content { padding: 20px; }
             .section { margin-bottom: 20px; }
             .section h4 { margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: var(--vscode-descriptionForeground); text-transform: uppercase; }
             .method-url { display: flex; align-items: center; gap: 15px; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 6px; }
             .method { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; min-width: 50px; text-align: center; color: white; }
-            .method-get { background: #4CAF50; } .method-post { background: #FF9800; } .method-put { background: #2196F3; } .method-delete { background: #F44336; }
+            .method-get { background: var(--vscode-terminal-ansiGreen); } .method-post { background: var(--vscode-terminal-ansiYellow); } .method-put { background: var(--vscode-terminal-ansiBlue); } .method-delete { background: var(--vscode-terminal-ansiRed); }
             .url { font-family: monospace; font-weight: 500; word-break: break-all; flex: 1; }
             .status-line { display: flex; align-items: center; gap: 15px; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 6px; }
             .status-code { padding: 4px 8px; border-radius: 4px; font-weight: bold; min-width: 40px; text-align: center; color: white; }
-            .status-success { background: #4CAF50; } .status-error { background: #F44336; }
+            .status-success { background: var(--vscode-terminal-ansiGreen); } .status-error { background: var(--vscode-terminal-ansiRed); }
             .status-text { font-weight: 500; flex: 1; }
-            .duration { font-size: 12px; color: var(--vscode-descriptionForeground); background: var(--vscode-badge-background); padding: 2px 6px; border-radius: 3px; }
+            .duration { font-size: 12px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); padding: 2px 6px; border-radius: 3px; }
             .body-container { margin-top: 10px; }
             .body-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
             .body-header span { font-size: 12px; font-weight: 600; color: var(--vscode-descriptionForeground); text-transform: uppercase; }
@@ -987,26 +987,25 @@ export class HttpRequestRunner {
             .inline-copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
             pre.body { background: var(--vscode-textCodeBlock-background); padding: 15px; border-radius: 6px; overflow-x: auto; font-family: monospace; font-size: 13px; margin: 0; white-space: pre-wrap; border: 1px solid var(--vscode-panel-border); }
             pre.body.json { color: var(--vscode-editor-foreground); }
-            .json-key { color: #9CDCFE !important; font-weight: 500; }
-            .json-string { color: #CE9178 !important; }
-            .json-number { color: #B5CEA8 !important; }
-            .json-boolean { color: #569CD6 !important; font-weight: 500; }
-            .json-null { color: #569CD6 !important; font-weight: 500; }
-            .error-message { color: var(--vscode-terminal-ansiRed); }
+            .json-key { color: var(--vscode-debugTokenExpression-name) !important; font-weight: 500; }
+            .json-string { color: var(--vscode-debugTokenExpression-string) !important; }
+            .json-number { color: var(--vscode-debugTokenExpression-number) !important; }
+            .json-boolean { color: var(--vscode-debugTokenExpression-boolean) !important; font-weight: 500; }
+            .json-null { color: var(--vscode-debugTokenExpression-value) !important; font-weight: 500; font-style: italic; }
+            .error-message { color: var(--vscode-errorForeground); }
             .error-info { padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 6px; color: var(--vscode-descriptionForeground); font-style: italic; }
             .no-results { text-align: center; padding: 60px 20px; color: var(--vscode-descriptionForeground); }
             .toggle-url-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px; font-weight: 500; }
             .toggle-url-btn:hover { background: var(--vscode-button-hoverBackground); }
-            /* Test results styles */
             .test-section { margin-top: 18px; }
             .test-section h4 { margin-bottom: 8px; }
             .test-summary { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-            .test-passed-summary { color: var(--vscode-terminal-ansiGreen); }
-            .test-failed-summary { color: var(--vscode-terminal-ansiRed); }
+            .test-passed-summary { color: var(--vscode-testing-iconPassed); }
+            .test-failed-summary { color: var(--vscode-testing-iconFailed); }
             .test-list { list-style: none; padding: 0; margin: 0; }
             .test-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; }
-            .test-passed { color: var(--vscode-terminal-ansiGreen); }
-            .test-failed { color: var(--vscode-terminal-ansiRed); font-weight: bold; }
+            .test-passed { color: var(--vscode-testing-iconPassed); }
+            .test-failed { color: var(--vscode-testing-iconFailed); font-weight: bold; }
             .test-status { font-size: 16px; margin-right: 4px; }
             .test-name { font-family: monospace; font-weight: 500; }
             .test-message { margin-left: 8px; color: var(--vscode-descriptionForeground); font-style: italic; }
