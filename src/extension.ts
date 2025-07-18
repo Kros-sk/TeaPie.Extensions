@@ -1123,4 +1123,12 @@ async function writeJsonFile(filePath: string, content: any): Promise<void> {
 
 export function deactivate() {
     console.log('TeaPie extension deactivated');
+    
+    // Dispose of HttpRequestRunner resources
+    HttpRequestRunner.dispose();
+    
+    // Dispose of output channel
+    if (outputChannel) {
+        outputChannel.dispose();
+    }
 } 
