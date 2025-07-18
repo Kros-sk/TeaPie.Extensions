@@ -2,8 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { parseVariablesFile } from './utils/variablesParser';
-
 export interface Variables {
     TestCaseVariables?: { [key: string]: any };
     CollectionVariables?: { [key: string]: any };
@@ -57,7 +55,7 @@ export class VariablesProvider {
             }
 
             const content = await fs.promises.readFile(envPath, 'utf8');
-            const envConfig = parseVariablesFile(content);
+            const envConfig = content.trim() ? JSON.parse(content) : {};
 
             // Get the current environment from workspace state
             const currentEnv = VariablesProvider.extensionContext?.workspaceState.get<string>('teapie.currentEnvironment') || 'local';
@@ -156,7 +154,7 @@ export class VariablesProvider {
             
             if (fs.existsSync(variablesPath)) {
                 const content = await fs.promises.readFile(variablesPath, 'utf8');
-                lastRunVariables = parseVariablesFile(content);
+                lastRunVariables = content.trim() ? JSON.parse(content) : {};
                 this.outputChannel.appendLine('[TeaPie] Loaded last run variables:');
                 this.outputChannel.appendLine(JSON.stringify(lastRunVariables, null, 2));
             } else {

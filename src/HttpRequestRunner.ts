@@ -1,101 +1,23 @@
 import * as path from 'path';
-import * as vscode from 'vscode';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import * as fs from 'fs/promises';
-
-import {
+import * as vscode from 'vscode';
+import { 
     STATUS_PASSED,
     STATUS_FAILED,
-    ERROR_CONNECTION_REFUSED,
-    ERROR_HOST_NOT_FOUND,
-    ERROR_TIMEOUT,
-    ERROR_EXECUTION_FAILED,
-    ERROR_NO_REQUESTS,
-    ERROR_NO_HTTP_FOUND,
     ERROR_HTTP_FAILED,
     ERROR_UNKNOWN
 } from './constants/httpResults';
 import { 
-    CLI_PATTERNS, 
-    CONTENT_PATTERNS, 
-    ERROR_PATTERNS, 
-    LOG_PATTERNS, 
-    isTimeoutError, 
-    hasLogTimestamp, 
-    extractUrlFromError 
+    HttpRequestResults, 
+    HttpRequestResult, 
+    HttpTestResult 
+} from './modules/HttpRequestTypes';
+import { HttpFileParser } from './modules/HttpFileParser';
+import { CliOutputParser } from './modules/CliOutputParser';
+import { TeaPieExecutor } from './modules/TeaPieExecutor';
+import { 
+    CONTENT_PATTERNS
 } from './constants/cliPatterns';
-
-const execAsync = promisify(exec);
-
-// Internal types for CLI parsing
-interface CliParseResult {
-    requests: InternalRequest[];
-    connectionError: string | null;
-    foundHttpRequest: boolean;
-}
-
-interface HttpRequestResults {
-    RequestGroups: {
-        RequestGroup: HttpRequestGroup[];
-    };
-}
-
-interface HttpRequestGroup {
-    Name: string;
-    FilePath: string;
-    Requests: HttpRequestResult[];
-    Status: string;
-    Duration: string;
-}
-
-interface HttpTestResult {
-    Name: string;
-    Passed: boolean;
-    Message?: string;
-}
-
-interface InternalRequest {
-    method: string;
-    url: string;
-    requestHeaders: { [key: string]: string };
-    responseHeaders: { [key: string]: string };
-    uniqueKey?: string;
-    isTemporary?: boolean;
-    isRetry?: boolean;
-    originalRequest?: InternalRequest | null;
-    title?: string | null;
-    name?: string | null;
-    templateUrl?: string | null;
-    requestBody?: string;
-    responseStatus?: number;
-    responseStatusText?: string;
-    responseBody?: string;
-    duration?: string;
-    ErrorMessage?: string;
-}
-
-interface HttpRequestResult {
-    Name: string;
-    Status: string;
-    Duration: string;
-    Request?: {
-        Method: string;
-        Url: string;
-        TemplateUrl?: string;
-        Headers: { [key: string]: string };
-        Body?: string;
-    };
-    Response?: {
-        StatusCode: number;
-        StatusText: string;
-        Headers: { [key: string]: string };
-        Body?: string;
-        Duration: string;
-    };
-    ErrorMessage?: string;
-    Tests?: HttpTestResult[];
-}
 
 export class HttpRequestRunner {
     private static currentPanel: vscode.WebviewPanel | undefined;
@@ -104,15 +26,16 @@ export class HttpRequestRunner {
     private static panelColumn: vscode.ViewColumn | undefined;
     private static lastHttpUri: vscode.Uri | undefined;
     private static isRunning = false;
-    private static disposables: vscode.Disposable[] = [];
+private static readonly disposables: vscode.Disposable[] = [];
 
     public static setOutputChannel(channel: vscode.OutputChannel) {
         this.outputChannel = channel;
+        TeaPieExecutor.setOutputChannel(channel);
     }
 
     public static dispose() {
         this.disposables.forEach(d => d.dispose());
-        this.disposables = [];
+        this.disposables.length = 0;
         if (this.currentPanel) {
             this.currentPanel.dispose();
             this.currentPanel = undefined;
@@ -139,7 +62,7 @@ export class HttpRequestRunner {
         if (forceColumn) {
             targetColumn = forceColumn;
         } else {
-            const column = vscode.window.activeTextEditor ? vscode.window.activeTextEditor.viewColumn : undefined;
+            const column = vscode.window.activeTextEditor?.viewColumn;
             targetColumn = column === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
             this.panelColumn = targetColumn;
         }
@@ -173,7 +96,6 @@ export class HttpRequestRunner {
 
         // Generate a unique request ID for this execution
         const requestId = ++this.lastRequestId;
-        // Show loading state and disable retry button
         this.currentPanel.webview.html = this.getLoadingContent(uri).replace('<button class="retry-btn" id="retry-btn">Retry</button>', '<button class="retry-btn" id="retry-btn" disabled>Retry</button>');
 
         try {
@@ -198,754 +120,8 @@ export class HttpRequestRunner {
         }
     }
 
-    private static mapConnectionError(errorMessage: string): string {
-        if (errorMessage?.includes('ECONNREFUSED') || errorMessage?.includes('connection refused')) {
-            return ERROR_CONNECTION_REFUSED;
-        } else if (errorMessage?.includes('ENOTFOUND') || errorMessage?.includes('getaddrinfo')) {
-            return ERROR_HOST_NOT_FOUND;
-        } else if (errorMessage?.includes('timeout')) {
-            return ERROR_TIMEOUT;
-        }
-        return ERROR_EXECUTION_FAILED;
-    }
-
-    private static async executeTeaPie(filePath: string): Promise<HttpRequestResults> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            throw new Error('No workspace folder is open');
-        }
-        
-        const config = vscode.workspace.getConfiguration('teapie');
-        const currentEnv = config.get<string>('currentEnvironment');
-        const timeout = config.get<number>('requestTimeout', 60000);
-        
-        const envParam = currentEnv ? ` -e "${currentEnv}"` : '';
-        
-        // Get the timestamp of the XML report file before running the command
-        const reportPath = path.join(workspaceFolder.uri.fsPath, '.teapie', 'reports', 'last-run-report.xml');
-        const command = `teapie test "${filePath}" --no-logo --verbose -r "${reportPath}"${envParam}`;
-        this.outputChannel?.appendLine(`Executing TeaPie command: ${command}`);
-        
-        // Ensure reports directory exists
-        const reportsDir = path.dirname(reportPath);
-        try {
-            await fs.mkdir(reportsDir, { recursive: true });
-        } catch (error) {
-            // Directory might already exist, that's fine
-        }
-        let beforeTimestamp = 0;
-        try {
-            const stats = await fs.stat(reportPath);
-            beforeTimestamp = stats.mtime.getTime();
-        } catch {
-            // File doesn't exist yet, that's fine
-        }
-        
-        try {
-            const { stdout } = await execAsync(command, {
-                cwd: workspaceFolder.uri.fsPath,
-                timeout: timeout
-            });
-            
-            // Wait for the XML report file to be updated
-            await this.waitForXmlReportUpdate(reportPath, beforeTimestamp);
-            
-            const result = await this.parseOutput(stdout, filePath, workspaceFolder.uri.fsPath);
-            if (!result.RequestGroups?.RequestGroup?.[0]?.Requests?.length) {
-                return this.createFailedResult(filePath, ERROR_NO_REQUESTS);
-            }
-            return result;
-        } catch (error: any) {
-            if (error.stdout) {
-                try {
-                    // Even if there's an error, try to wait for the XML report
-                    await this.waitForXmlReportUpdate(reportPath, beforeTimestamp);
-                    
-                    const result = await this.parseOutput(error.stdout, filePath, workspaceFolder.uri.fsPath);
-                    if (!result.RequestGroups?.RequestGroup?.[0]?.Requests?.length) {
-                        return this.createFailedResult(filePath, this.mapConnectionError(error.message || error.toString()));
-                    }
-                    return result;
-                } catch {}
-            }
-            return this.createFailedResult(filePath, this.mapConnectionError(error.message || error.toString()));
-        }
-    }
-
-    private static async parseHttpFileForNames(filePath: string): Promise<Array<{name?: string, title?: string, method: string, url: string, templateUrl?: string, hasTestDirectives?: boolean, testDirectiveCount?: number}>> {
-        const content = await fs.readFile(filePath, 'utf8');
-        const lines = content.split(/\r?\n/);
-        const result: Array<{name?: string, title?: string, method: string, url: string, templateUrl?: string, hasTestDirectives?: boolean, testDirectiveCount?: number}> = [];
-        let lastName: string | undefined = undefined;
-        let lastTitle: string | undefined = undefined;
-        let testDirectiveCount = 0;
-        
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            
-            // Check for test directives
-            if (line.match(/^##\s*TEST-/)) {
-                testDirectiveCount++;
-                continue;
-            }
-            
-            const nameMatch = line.match(/^#\s*@name\s+(.+)/);
-            if (nameMatch) {
-                lastName = nameMatch[1].trim();
-                continue;
-            }
-            const titleMatch = line.match(/^###\s+(.+)/);
-            if (titleMatch) {
-                lastTitle = titleMatch[1].trim();
-                continue;
-            }
-            const methodMatch = line.match(/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\s+(.+)/i);
-            if (methodMatch) {
-                const templateUrl = methodMatch[2].trim();
-                result.push({
-                    name: lastName,
-                    title: lastTitle,
-                    method: methodMatch[1].toUpperCase(),
-                    url: templateUrl,
-                    templateUrl: templateUrl,
-                    hasTestDirectives: testDirectiveCount > 0,
-                    testDirectiveCount: testDirectiveCount
-                });
-                lastName = undefined;
-                lastTitle = undefined;
-                testDirectiveCount = 0; // Reset for next request
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Parses TeaPie CLI output and returns structured HTTP request results
-     */
-    private static async parseOutput(stdout: string, filePath: string, workspacePath: string): Promise<HttpRequestResults> {
-        const fileName = path.basename(filePath, path.extname(filePath));
-        
-        // Parse test results from XML file
-        const testResultsFromXml = await this.parseTestResultsFromXml(workspacePath, filePath);
-        
-        // Parse the CLI stdout to extract request/response data
-        const cliParseResult = await this.parseCliOutput(stdout, filePath);
-        
-        // Build final results combining CLI data with test results
-        return this.buildHttpRequestResults(
-            fileName,
-            filePath,
-            cliParseResult,
-            testResultsFromXml
-        );
-    }
-
-    /**
-     * Parses the CLI stdout output to extract HTTP request/response information
-     */
-    private static async parseCliOutput(stdout: string, filePath: string): Promise<CliParseResult> {
-        const lines = stdout.split('\n');
-        const requests: InternalRequest[] = [];
-        const pendingRequests: Map<string, InternalRequest> = new Map();
-        
-        let connectionError: string | null = null;
-        let requestCounter = 0;
-        let isNextRequestRetry = false;
-        let foundHttpRequest = false;
-        
-        // Parse the .http file for names/titles/method/url
-        const httpFileRequests = await this.parseHttpFileForNames(filePath);
-        let httpFileRequestIdx = 0;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-
-            // Process different types of log lines
-            if (this.isRequestStartLine(line)) {
-                foundHttpRequest = true;
-                this.processRequestStart(
-                    line,
-                    pendingRequests,
-                    httpFileRequests,
-                    httpFileRequestIdx,
-                    requestCounter,
-                    isNextRequestRetry
-                );
-                if (!line.includes('/auth/token') && !line.includes('/token')) {
-                    httpFileRequestIdx++;
-                }
-                if (isNextRequestRetry) {
-                    isNextRequestRetry = false;
-                }
-                requestCounter++;
-            } else if (this.isRetryLine(line)) {
-                isNextRequestRetry = true;
-            } else if (this.isConnectionErrorLine(line)) {
-                connectionError = this.extractConnectionError(line, lines, i);
-            } else if (this.isRequestBodyLine(line)) {
-                this.processRequestBody(line, lines, i, pendingRequests);
-            } else if (this.isResponseLine(line)) {
-                this.processResponse(line, pendingRequests);
-            } else if (this.isResponseBodyLine(line)) {
-                this.processResponseBody(line, lines, i, pendingRequests);
-            } else if (this.isRequestEndLine(line)) {
-                this.processRequestEnd(line, pendingRequests, requests);
-            }
-        }
-
-        return {
-            requests,
-            connectionError,
-            foundHttpRequest
-        };
-    }
-
-    /**
-     * Builds the final HTTP request results by combining CLI data with test results
-     */
-    private static buildHttpRequestResults(
-        fileName: string,
-        filePath: string,
-        cliResult: CliParseResult,
-        testResultsFromXml: Map<string, HttpTestResult[]>
-    ): HttpRequestResults {
-        const { requests, connectionError, foundHttpRequest } = cliResult;
-
-        if (!foundHttpRequest) {
-            return this.createNoHttpRequestsResult(fileName, filePath);
-        }
-
-        // Deduplicate and process requests
-        const uniqueRequests = this.deduplicateRequests(requests);
-        const requestResults = this.buildRequestResults(uniqueRequests, testResultsFromXml);
-        
-        // Add custom CSX tests
-        this.addCustomCsxTests(requestResults, testResultsFromXml);
-
-        // Handle connection errors
-        if (connectionError && !requestResults.length) {
-            requestResults.push(this.createConnectionErrorResult(connectionError));
-        }
-
-        return {
-            RequestGroups: {
-                RequestGroup: [{
-                    Name: fileName,
-                    FilePath: filePath,
-                    Requests: requestResults,
-                    Status: requestResults.every(r => r.Status === STATUS_PASSED) ? STATUS_PASSED : STATUS_FAILED,
-                    Duration: '0s'
-                }]
-            }
-        };
-    }
-
-    private static extractBody(lines: string[], startIndex: number): string {
-        const bodyLines: string[] = [];
-        let i = startIndex + 1;
-        
-        while (i < lines.length) {
-            const line = lines[i];
-            if (hasLogTimestamp(line) || 
-                line.includes(LOG_PATTERNS.INFO_SENDING) || 
-                line.includes(LOG_PATTERNS.INFO_END)) {
-                break;
-            }
-            bodyLines.push(line);
-            i++;
-        }
-        
-        return bodyLines.join('\n').trim();
-    }
-
-    // Line Detection Methods
-    
-    /**
-     * Checks if a line indicates the start of an HTTP request
-     */
-    private static isRequestStartLine(line: string): boolean {
-        return CLI_PATTERNS.REQUEST_START.test(line);
-    }
-
-    /**
-     * Checks if a line indicates a retry attempt
-     */
-    private static isRetryLine(line: string): boolean {
-        return line.includes(CLI_PATTERNS.RETRY_ATTEMPT);
-    }
-
-    /**
-     * Checks if a line contains connection error information
-     */
-    private static isConnectionErrorLine(line: string): boolean {
-        return line.includes(ERROR_PATTERNS.CONNECTION_REFUSED) ||
-               (line.includes('[') && line.includes(LOG_PATTERNS.ERROR_LEVEL) && line.includes(ERROR_PATTERNS.EXECUTION_ERROR));
-    }
-
-    /**
-     * Checks if a line indicates an HTTP request body
-     */
-    private static isRequestBodyLine(line: string): boolean {
-        return line.includes(CONTENT_PATTERNS.REQUEST_BODY);
-    }
-
-    /**
-     * Checks if a line indicates an HTTP response
-     */
-    private static isResponseLine(line: string): boolean {
-        return CONTENT_PATTERNS.RESPONSE.test(line);
-    }
-
-    /**
-     * Checks if a line indicates a response body
-     */
-    private static isResponseBodyLine(line: string): boolean {
-        return line.includes(CONTENT_PATTERNS.RESPONSE_BODY);
-    }
-
-    /**
-     * Checks if a line indicates the end of request processing
-     */
-    private static isRequestEndLine(line: string): boolean {
-        return CLI_PATTERNS.REQUEST_END.test(line);
-    }
-
-    // Processing Methods
-
-    /**
-     * Processes the start of an HTTP request
-     */
-    private static processRequestStart(
-        line: string,
-        pendingRequests: Map<string, InternalRequest>,
-        httpFileRequests: Array<{name?: string, title?: string, method: string, url: string, templateUrl?: string, hasTestDirectives?: boolean, testDirectiveCount?: number}>,
-        httpFileRequestIdx: number,
-        requestCounter: number,
-        isNextRequestRetry: boolean
-    ): void {
-        const startMatch = line.match(CLI_PATTERNS.REQUEST_START_EXTRACT);
-        if (!startMatch) return;
-
-        const method = startMatch[1];
-        const url = startMatch[2];
-        let name: string | null = null;
-        let title: string | null = null;
-        let templateUrl: string | null = null;
-
-        // Only assign name/title/templateUrl for user requests (not auth/token)
-        const isUserRequest = !url.includes('/auth/token') && !url.includes('/token');
-        if (isUserRequest && httpFileRequestIdx < httpFileRequests.length) {
-            const reqInfo = httpFileRequests[httpFileRequestIdx];
-            name = reqInfo.name || null;
-            title = reqInfo.title || null;
-            templateUrl = reqInfo.templateUrl || null;
-        }
-
-        if (isNextRequestRetry) {
-            const retryKey = `retry_${requestCounter + 1}_${method}_${url}`;
-            // Remove previous retry attempts
-            for (const [key, req] of pendingRequests.entries()) {
-                if (req.isRetry && req.method === method) {
-                    pendingRequests.delete(key);
-                }
-            }
-            pendingRequests.set(retryKey, {
-                method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: retryKey, 
-                isTemporary: false, isRetry: true, originalRequest: null, title, name, templateUrl
-            });
-        } else {
-            const requestKey = `req_${requestCounter + 1}_${method}_${url}`;
-            let existingRequest = null;
-
-            if (url.includes('/auth/token') || url.includes('/token')) {
-                for (const [key, req] of pendingRequests.entries()) {
-                    if (req.method === method && req.url === url && req.isTemporary) {
-                        existingRequest = req;
-                        pendingRequests.delete(key);
-                        break;
-                    }
-                }
-            }
-
-            if (existingRequest) {
-                existingRequest.isTemporary = false;
-                existingRequest.uniqueKey = requestKey;
-                existingRequest.title = title;
-                existingRequest.name = name;
-                existingRequest.templateUrl = templateUrl;
-                existingRequest.url = url;
-                pendingRequests.set(requestKey, existingRequest);
-            } else {
-                pendingRequests.set(requestKey, {
-                    method, url, requestHeaders: {}, responseHeaders: {}, uniqueKey: requestKey, 
-                    isTemporary: false, isRetry: false, title, name, templateUrl
-                });
-            }
-        }
-    }
-
-    /**
-     * Extracts connection error from the current line and surrounding lines
-     */
-    private static extractConnectionError(line: string, lines: string[], currentIndex: number): string {
-        if (line.includes(ERROR_PATTERNS.CONNECTION_REFUSED)) {
-            const url = extractUrlFromError(line) || 'unknown host';
-            return `Connection refused to ${url} - please ensure the server is running and accessible`;
-        }
-
-        if (line.includes('[') && line.includes(LOG_PATTERNS.ERROR_LEVEL) && line.includes(ERROR_PATTERNS.EXECUTION_ERROR)) {
-            // Look ahead in the next few lines for specific error details
-            for (let j = currentIndex + 1; j < Math.min(currentIndex + 5, lines.length); j++) {
-                const errorLine = lines[j].trim();
-                if (errorLine.includes(ERROR_PATTERNS.CONNECTION_REFUSED)) {
-                    const url = extractUrlFromError(errorLine) || 'unknown host';
-                    return `Connection refused to ${url} - please ensure the server is running and accessible`;
-                } else if (errorLine.includes(ERROR_PATTERNS.DNS_ERROR)) {
-                    return 'Host not found - please check the URL in your HTTP request';
-                } else if (isTimeoutError(errorLine)) {
-                    return 'Request timed out - server may be unresponsive';
-                }
-            }
-            return 'HTTP request execution failed';
-        }
-
-        return 'Unknown connection error';
-    }
-
-    /**
-     * Processes HTTP request body
-     */
-    private static processRequestBody(
-        line: string,
-        lines: string[],
-        currentIndex: number,
-        pendingRequests: Map<string, InternalRequest>
-    ): void {
-        const requestBody = this.extractBody(lines, currentIndex);
-        let targetRequest = null;
-        let targetKey = null;
-
-        const isAuthBody = requestBody.includes('grant_type=') || 
-                          requestBody.includes('client_id=') || 
-                          requestBody.includes('client_secret=');
-        const isJsonBody = requestBody.trim().startsWith('{') && requestBody.trim().endsWith('}');
-
-        if (isAuthBody) {
-            // Find auth request
-            for (const [key, request] of pendingRequests.entries()) {
-                if ((key.includes('/auth/token') || key.includes('/token')) && !request.requestBody) {
-                    targetRequest = request;
-                    targetKey = key;
-                    break;
-                }
-            }
-
-            if (!targetRequest) {
-                // Look ahead for future auth requests
-                for (let j = currentIndex + 1; j < Math.min(currentIndex + 10, lines.length); j++) {
-                    const futureStartMatch = lines[j].trim().match(CLI_PATTERNS.REQUEST_START_EXTRACT);
-                    if (futureStartMatch) {
-                        const futureUrl = futureStartMatch[2];
-                        if (futureUrl.includes('/auth/token') || futureUrl.includes('/token')) {
-                            const tempKey = `temp_auth_${futureStartMatch[1]}_${futureUrl}`;
-                            pendingRequests.set(tempKey, {
-                                method: futureStartMatch[1], 
-                                url: futureUrl, 
-                                requestHeaders: {}, 
-                                responseHeaders: {}, 
-                                requestBody, 
-                                isTemporary: true
-                            });
-                            targetRequest = pendingRequests.get(tempKey);
-                            targetKey = tempKey;
-                            break;
-                        }
-                    }
-                }
-            }
-        } else if (isJsonBody) {
-            // Find the most recent non-auth POST/PUT/PATCH request
-            for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
-                if (!key.includes('/auth/token') && !key.includes('/token') &&
-                    (request.method === 'POST' || request.method === 'PUT' || request.method === 'PATCH') &&
-                    !request.requestBody && !request.isRetry) {
-                    targetRequest = request;
-                    targetKey = key;
-                    break;
-                }
-            }
-        } else {
-            // Look backwards for the most recent request
-            for (let j = currentIndex - 1; j >= 0; j--) {
-                const backLine = lines[j].trim();
-                const backStartMatch = backLine.match(CLI_PATTERNS.REQUEST_START_EXTRACT);
-                if (backStartMatch) {
-                    const backKey = `${backStartMatch[1]} ${backStartMatch[2]}`;
-                    const backRequest = pendingRequests.get(backKey);
-                    if (backRequest && !backRequest.requestBody) {
-                        targetRequest = backRequest;
-                        targetKey = backKey;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (targetRequest && targetKey) {
-            targetRequest.requestBody = requestBody;
-        }
-    }
-
-    /**
-     * Processes HTTP response
-     */
-    private static processResponse(line: string, pendingRequests: Map<string, InternalRequest>): void {
-        const responseMatch = line.match(CONTENT_PATTERNS.RESPONSE);
-        if (!responseMatch) return;
-
-        const statusCode = parseInt(responseMatch[1]);
-        const statusText = responseMatch[2];
-        const responseUrl = responseMatch[3];
-
-        for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
-            if (request.url === responseUrl && !request.responseStatus) {
-                request.responseStatus = statusCode;
-                request.responseStatusText = statusText;
-                break;
-            }
-        }
-    }
-
-    /**
-     * Processes HTTP response body
-     */
-    private static processResponseBody(
-        line: string,
-        lines: string[],
-        currentIndex: number,
-        pendingRequests: Map<string, InternalRequest>
-    ): void {
-        const responseBody = this.extractBody(lines, currentIndex);
-        
-        // Look backwards for the corresponding response
-        for (let j = currentIndex - 1; j >= 0; j--) {
-            const backLine = lines[j].trim();
-            const backResponseMatch = backLine.match(CONTENT_PATTERNS.RESPONSE);
-            if (backResponseMatch) {
-                const responseUrl = backResponseMatch[3];
-                const responseStatus = parseInt(backResponseMatch[1]);
-                
-                for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
-                    if (request.url === responseUrl && 
-                        request.responseStatus === responseStatus && 
-                        !request.responseBody) {
-                        request.responseBody = responseBody;
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Processes the end of an HTTP request
-     */
-    private static processRequestEnd(
-        line: string,
-        pendingRequests: Map<string, InternalRequest>,
-        requests: InternalRequest[]
-    ): void {
-        const endMatch = line.match(CLI_PATTERNS.REQUEST_END);
-        if (!endMatch) return;
-
-        const statusCode = parseInt(endMatch[2]);
-        const duration = endMatch[1] + 'ms';
-        let foundRequest = null;
-        let foundKey = null;
-
-        // Find matching request by status code
-        for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
-            if (request.responseStatus === statusCode && !request.duration) {
-                foundRequest = request;
-                foundKey = key;
-                break;
-            }
-        }
-
-        // If not found, find any request without duration
-        if (!foundRequest) {
-            for (const [key, request] of Array.from(pendingRequests.entries()).reverse()) {
-                if (!request.duration) {
-                    foundRequest = request;
-                    foundKey = key;
-                    foundRequest.responseStatus = statusCode;
-                    break;
-                }
-            }
-        }
-
-        if (foundRequest && foundKey) {
-            foundRequest.duration = duration;
-            
-            if (foundRequest.isRetry && foundRequest.originalRequest) {
-                // Update original request with retry results
-                foundRequest.originalRequest.responseStatus = foundRequest.responseStatus || statusCode;
-                foundRequest.originalRequest.responseStatusText = foundRequest.responseStatusText;
-                foundRequest.originalRequest.responseBody = foundRequest.responseBody;
-                foundRequest.originalRequest.duration = duration;
-                pendingRequests.delete(foundKey);
-            } else {
-                requests.push(foundRequest);
-                pendingRequests.delete(foundKey);
-            }
-        }
-    }
-
-    // Result Building Methods
-
-    /**
-     * Creates a result for when no HTTP requests are found
-     */
-    private static createNoHttpRequestsResult(fileName: string, filePath: string): HttpRequestResults {
-        return {
-            RequestGroups: {
-                RequestGroup: [{
-                    Name: fileName,
-                    FilePath: filePath,
-                    Requests: [{
-                        Name: 'No HTTP requests found',
-                        Status: STATUS_FAILED,
-                        Duration: '0ms',
-                        ErrorMessage: ERROR_NO_HTTP_FOUND
-                    }],
-                    Status: STATUS_FAILED,
-                    Duration: '0s'
-                }]
-            }
-        };
-    }
-
-    /**
-     * Deduplicates requests, preferring named/title requests over unnamed ones
-     */
-    private static deduplicateRequests(requests: InternalRequest[]): InternalRequest[] {
-        const logicalRequestsMap = new Map<string, InternalRequest>();
-        const nameOrTitleRequests = new Map<string, InternalRequest>();
-        
-        for (const req of requests) {
-            const logicalKey = `${req.method} ${req.url}`;
-            if (req.name || req.title) {
-                // Always prefer named/title requests for this logicalKey
-                nameOrTitleRequests.set(logicalKey, req);
-            } else {
-                // Only set if not already set by a named/title request
-                if (!nameOrTitleRequests.has(logicalKey)) {
-                    logicalRequestsMap.set(logicalKey, req);
-                }
-            }
-        }
-        
-        // Merge: prefer named/title requests, fallback to unnamed if not present
-        const uniqueRequests = Array.from(nameOrTitleRequests.values());
-        for (const [logicalKey, req] of logicalRequestsMap.entries()) {
-            if (!nameOrTitleRequests.has(logicalKey)) {
-                uniqueRequests.push(req);
-            }
-        }
-        
-        return uniqueRequests;
-    }
-
-    /**
-     * Builds HttpRequestResult array from unique requests
-     */
-    private static buildRequestResults(
-        uniqueRequests: InternalRequest[],
-        testResultsFromXml: Map<string, HttpTestResult[]>
-    ): HttpRequestResult[] {
-        return uniqueRequests.map(req => {
-            const resolvedUrl = req.url;
-            const templateUrl = req.templateUrl || req.url;
-            
-            // Skip test assignment for authentication/token requests
-            let requestTests: HttpTestResult[] = [];
-            const isAuthRequest = req.url.includes('/auth/token') || req.url.includes('/token');
-            
-            if (!isAuthRequest) {
-                // Try to find tests that match this request by name or title
-                if (req.name && testResultsFromXml.has(req.name)) {
-                    requestTests = testResultsFromXml.get(req.name) || [];
-                }
-                else if (req.title && testResultsFromXml.has(req.title)) {
-                    requestTests = testResultsFromXml.get(req.title) || [];
-                }
-                else {
-                    // Don't assign tests to unnamed requests to avoid false positives
-                    requestTests = [];
-                }
-            }
-            
-            // If any test failed, mark request as failed
-            let status = req.responseStatus && req.responseStatus >= 200 && req.responseStatus < 400 ? STATUS_PASSED : STATUS_FAILED;
-            if (requestTests.length > 0 && requestTests.some((t: HttpTestResult) => !t.Passed)) {
-                status = STATUS_FAILED;
-            }
-            
-            return {
-                Name: req.name ? req.name : (req.title ? req.title : `${req.method} ${resolvedUrl}`),
-                Status: status,
-                Duration: req.duration || '0ms',
-                Request: {
-                    Method: req.method,
-                    Url: resolvedUrl,
-                    TemplateUrl: templateUrl !== resolvedUrl ? templateUrl : undefined,
-                    Headers: req.requestHeaders,
-                    Body: req.requestBody
-                },
-                Response: req.responseStatus ? {
-                    StatusCode: req.responseStatus,
-                    StatusText: req.responseStatusText || 'OK',
-                    Headers: req.responseHeaders,
-                    Body: req.responseBody,
-                    Duration: req.duration || '0ms'
-                } : undefined,
-                ErrorMessage: req.ErrorMessage,
-                Tests: requestTests
-            };
-        });
-    }
-
-    /**
-     * Adds custom CSX tests to the request results
-     */
-    private static addCustomCsxTests(
-        requestResults: HttpRequestResult[],
-        testResultsFromXml: Map<string, HttpTestResult[]>
-    ): void {
-        for (const [key, tests] of testResultsFromXml.entries()) {
-            if (key === '_CUSTOM_CSX_TESTS' && tests.length > 0) {
-                const allTestsPassed = tests.every(test => test.Passed);
-                requestResults.push({
-                    Name: `📝 .csx Tests (${tests.length} tests)`,
-                    Status: allTestsPassed ? STATUS_PASSED : STATUS_FAILED,
-                    Duration: '0ms',
-                    ErrorMessage: allTestsPassed ? undefined : `${tests.filter(t => !t.Passed).length} test(s) failed`,
-                    Tests: tests
-                });
-            }
-        }
-    }
-
-    /**
-     * Creates a connection error result
-     */
-    private static createConnectionErrorResult(connectionError: string): HttpRequestResult {
-        return {
-            Name: ERROR_HTTP_FAILED,
-            Status: STATUS_FAILED,
-            Duration: '0ms',
-            ErrorMessage: connectionError
-        };
+    private static executeTeaPie(filePath: string): Promise<HttpRequestResults> {
+        return TeaPieExecutor.executeTeaPie(filePath);
     }
 
     private static createFailedResult(filePath: string, errorMessage: string): HttpRequestResults {
@@ -972,7 +148,7 @@ export class HttpRequestRunner {
         
         const messageDisposable = this.currentPanel.webview.onDidReceiveMessage(message => {
             if (message?.command === 'retry' && this.lastHttpUri && !this.isRunning) {
-                // Always use the stored split column for retry
+                            // Always use the stored split column for retry
                 this.runHttpFile(this.lastHttpUri, this.panelColumn);
             }
         });
@@ -1054,7 +230,7 @@ export class HttpRequestRunner {
 
     private static renderRequestSection(request: HttpRequestResult, idx: number): string {
         let testHtml = '';
-        if (request.Tests && request.Tests.length > 0) {
+        if (request.Tests?.length) {
             const allPassed = request.Tests.every(t => t.Passed);
             const summaryClass = allPassed ? 'test-passed-summary' : 'test-failed-summary';
             const summaryText = allPassed ? '👍 All tests passed' : '👎 Some tests failed';
@@ -1067,7 +243,7 @@ export class HttpRequestRunner {
                             <li class="test-item ${test.Passed ? 'test-passed' : 'test-failed'}">
                                 <span class="test-status">${test.Passed ? '✔️' : '❌'}</span>
                                 <span class="test-name">${this.escapeHtml(test.Name)}</span>
-                                ${test.Message ? `<span class="test-message">${this.escapeHtml(test.Message)}</span>` : ''}
+                                ${test.Message && `<span class="test-message">${this.escapeHtml(test.Message)}</span>`}
                             </li>
                         `).join('')}
                     </ul>
@@ -1076,19 +252,20 @@ export class HttpRequestRunner {
         }
         if (request.Request) {
             const body = this.formatBody(request.Request.Body);
-            const resolvedUrl = this.escapeHtml(request.Request.Url);
-            const templateUrl = this.escapeHtml(request.Request.TemplateUrl || request.Request.Url);
-            const hasTemplate = request.Request.TemplateUrl && request.Request.TemplateUrl !== request.Request.Url;
+            const { Method, Url, TemplateUrl } = request.Request;
+            const resolvedUrl = this.escapeHtml(Url);
+            const templateUrl = this.escapeHtml(TemplateUrl || Url);
+            const hasTemplate = TemplateUrl && TemplateUrl !== Url;
             return `
                 <div class="section">
                     <h4>Request</h4>
                     <div class="method-url">
-                        <span class="method method-${this.escapeHtml(request.Request.Method.toLowerCase())}">${this.escapeHtml(request.Request.Method)}</span>
+                        <span class="method method-${this.escapeHtml(Method.toLowerCase())}">${this.escapeHtml(Method)}</span>
                         <span class="url" id="url-${idx}" data-resolved="${resolvedUrl}" data-template="${templateUrl}">${resolvedUrl}</span>
-                        ${hasTemplate ? `<button class="toggle-url-btn" id="toggle-url-btn-${idx}" data-idx="${idx}">Show Variables</button>` : ''}
+                        ${hasTemplate && `<button class="toggle-url-btn" id="toggle-url-btn-${idx}" data-idx="${idx}">Show Variables</button>`}
                         ${this.renderCopyButton(`url-${idx}`)}
                     </div>
-                    ${body ? `
+                    ${body && `
                     <div class="body-container">
                         <div class="body-header">
                             <span>Request Body</span>
@@ -1097,7 +274,7 @@ export class HttpRequestRunner {
                             <pre class="body json" id="request-${idx}">${body}</pre>
                             ${this.renderCopyButton(`request-${idx}`, true)}
                         </div>
-                    </div>` : ''}
+                    </div>`}
                     ${testHtml}
                 </div>`;
         } else if (request.ErrorMessage && !request.Response) {
@@ -1108,7 +285,6 @@ export class HttpRequestRunner {
                     ${testHtml}
                 </div>`;
         } else if (request.Name.includes('Custom CSX Tests')) {
-            // This is a grouped custom CSX tests display - only show the test results
             return testHtml;
         }
         return testHtml;
@@ -1126,7 +302,7 @@ export class HttpRequestRunner {
                     <span class="status-text">${this.escapeHtml(request.Response.StatusText)}</span>
                     <span class="duration">${this.escapeHtml(request.Response.Duration)}</span>
                 </div>
-                ${body ? `
+                ${body && `
                 <div class="body-container">
                     <div class="body-header">
                         <span>Response Body</span>
@@ -1135,7 +311,7 @@ export class HttpRequestRunner {
                         <pre class="body json" id="response-${idx}">${body}</pre>
                         ${this.renderCopyButton(`response-${idx}`, true)}
                     </div>
-                </div>` : ''}
+                </div>`}
             </div>`;
     }
 
@@ -1163,9 +339,9 @@ export class HttpRequestRunner {
         let hasRequests = false;
         
         if (results.RequestGroups?.RequestGroup) {
-            results.RequestGroups.RequestGroup.forEach(group => {
+            const { RequestGroup } = results.RequestGroups;
+            RequestGroup.forEach(group => {
                 group.Requests?.forEach((request, idx) => {
-                    // Handle Custom CSX Tests separately
                     if (request.Name.includes('Custom CSX Tests')) {
                         const allPassed = request.Tests?.every(t => t.Passed) ?? true;
                         const summaryClass = allPassed ? 'test-passed-summary' : 'test-failed-summary';
@@ -1185,7 +361,7 @@ export class HttpRequestRunner {
                                             <li class="test-item ${test.Passed ? 'test-passed' : 'test-failed'}">
                                                 <span class="test-status">${test.Passed ? '✔️' : '❌'}</span>
                                                 <span class="test-name">${this.escapeHtml(test.Name)}</span>
-                                                ${test.Message ? `<span class="test-message">${this.escapeHtml(test.Message)}</span>` : ''}
+                                ${test.Message && `<span class="test-message">${this.escapeHtml(test.Message)}</span>`}
                                             </li>
                                         `).join('')}
                                     </ul>
@@ -1270,6 +446,7 @@ export class HttpRequestRunner {
                     return `<span class="json-${cls}">${match}</span>`;
                 });
         } catch {
+            // JSON parsing failed, return original string
             return jsonString;
         }
     }
@@ -1281,6 +458,7 @@ export class HttpRequestRunner {
             const formatted = JSON.stringify(JSON.parse(body), null, 2);
             return this.formatJsonString(formatted);
         } catch {
+            // Not valid JSON, return as-is
             return body;
         }
     }
@@ -1396,160 +574,5 @@ export class HttpRequestRunner {
                 });
             });
         `;
-    }
-
-    private static async parseTestResultsFromXml(workspacePath: string, filePath: string): Promise<Map<string, HttpTestResult[]>> {
-        const testResults = new Map<string, HttpTestResult[]>();
-        const reportPath = path.join(workspacePath, '.teapie', 'reports', 'last-run-report.xml');
-        
-        try {
-            const xmlContent = await fs.readFile(reportPath, 'utf8');
-            
-            // Parse all tests and assign them correctly
-            const testSuiteRegex = /<testsuite[^>]*name="([^"]*)"[^>]*>([\s\S]*?)<\/testsuite>/gs;
-            const testCaseRegex = /<testcase[^>]*?name="([^"]*?)"[^>]*?(?:\s*\/\s*>|>([\s\S]*?)<\/testcase>)/g;
-            const failureRegex = /<failure[^>]*message="([^"]*)"[^>]*(?:type="([^"]*)")?[^>]*>([\s\S]*?)<\/failure>/s;
-            
-            // Get all HTTP requests from the file
-            const httpRequests = await this.parseHttpFileForNames(filePath);
-            
-            // Find all test suites in the XML
-            let suiteMatch;
-            const allTestsByRequest = new Map<string, HttpTestResult[]>();
-            
-            while ((suiteMatch = testSuiteRegex.exec(xmlContent)) !== null) {
-                const suiteName = this.decodeXmlEntities(suiteMatch[1]);
-                const suiteContent = suiteMatch[2];
-                
-                // Parse all tests from this suite
-                const allTests: HttpTestResult[] = [];
-                let testMatch;
-                testCaseRegex.lastIndex = 0;
-                
-                while ((testMatch = testCaseRegex.exec(suiteContent)) !== null) {
-                    const testName = this.decodeXmlEntities(testMatch[1]);
-                    const testContent = testMatch[2] || '';
-                    
-                    let passed = true;
-                    let message = '';
-                    
-                    // Check if this test case has a failure
-                    if (testContent.includes('<failure')) {
-                        passed = false;
-                        const failureMatch = failureRegex.exec(testContent);
-                        if (failureMatch) {
-                            message = this.decodeXmlEntities(failureMatch[1]);
-                            
-                            if (message.length > 200) {
-                                const firstLine = message.split('\n')[0];
-                                message = firstLine.length > 200 ? firstLine.substring(0, 197) + '...' : firstLine;
-                            }
-                        } else {
-                            message = 'Test failed';
-                        }
-                    } else {
-                        // Check for failure patterns
-                        if (testContent.includes('failure') || testContent.includes('Assert.') || testContent.includes('Expected:')) {
-                            passed = false;
-                            message = 'Test assertion failed';
-                        }
-                    }
-                    
-                    allTests.push({
-                        Name: testName,
-                        Passed: passed,
-                        Message: message
-                    });
-                }
-                
-                // Distribute tests based on test directive counts in the HTTP file
-                const requestsWithTests = httpRequests.filter(req => req.hasTestDirectives);
-                if (requestsWithTests.length > 0 && allTests.length > 0) {
-                    // Calculate total expected inline tests (excluding custom CSX tests)
-                    const totalExpectedInlineTests = requestsWithTests.reduce((sum, req) => sum + (req.testDirectiveCount || 0), 0);
-                    
-                    // Use order-based approach: inline tests come first, then CSX tests
-                    const inlineTests = allTests.slice(0, totalExpectedInlineTests);
-                    const customTests = allTests.slice(totalExpectedInlineTests);
-                    
-                    // Distribute inline tests based on directive counts
-                    let testIndex = 0;
-                    for (const request of requestsWithTests) {
-                        const expectedTestCount = request.testDirectiveCount || 0;
-                        if (expectedTestCount > 0 && request.name) {
-                            const testsForThisRequest = inlineTests.slice(testIndex, testIndex + expectedTestCount);
-                            if (testsForThisRequest.length > 0) {
-                                allTestsByRequest.set(request.name, testsForThisRequest);
-                                testIndex += expectedTestCount;
-                            }
-                        }
-                    }
-                    
-                    // Store custom tests separately if any exist
-                    if (customTests.length > 0) {
-                        allTestsByRequest.set('_CUSTOM_CSX_TESTS', customTests);
-                    }
-                    
-                    // Store under suite name for fallback
-                    testResults.set(suiteName, allTests);
-                } else {
-                    // Fallback: if no request has test directives, treat all tests as custom tests
-                    if (allTests.length > 0) {
-                        allTestsByRequest.set('_CUSTOM_CSX_TESTS', allTests);
-                        
-                        // Also store under suite name for fallback
-                        testResults.set(suiteName, allTests);
-                    }
-                }
-            }
-            // Store results in the main testResults map
-            for (const [requestName, tests] of allTestsByRequest.entries()) {
-                testResults.set(requestName, tests);
-            }
-            
-        } catch (error) {
-            // If we can't read the XML file, just return empty results
-            this.outputChannel?.appendLine(`Warning: Could not parse test results from XML: ${error}`);
-        }
-        
-        return testResults;
-    }
-
-    private static decodeXmlEntities(str: string): string {
-        return str
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#x([0-9A-Fa-f]+);/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)))
-            .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(parseInt(dec, 10)));
-    }
-
-    private static async waitForXmlReportUpdate(reportPath: string, beforeTimestamp: number): Promise<void> {
-        const maxWaitTime = 10000; // 10 seconds maximum wait (since we know the file should be generated)
-        const pollInterval = 100; // Check every 100ms 
-        const startTime = Date.now();
-        
-        while (Date.now() - startTime < maxWaitTime) {
-            try {
-                const stats = await fs.stat(reportPath);
-                const currentTimestamp = stats.mtime.getTime();
-                
-                // If the file has been updated (or is new), we're good
-                if (currentTimestamp > beforeTimestamp) {
-                    // Give it a small extra delay to ensure the file is completely written
-                    await new Promise(resolve => setTimeout(resolve, 50));
-                    return;
-                }
-            } catch {
-                // File doesn't exist yet, continue waiting
-            }
-            
-            // Wait before checking again
-            await new Promise(resolve => setTimeout(resolve, pollInterval));
-        }
-        
-        // If we reach here, the file wasn't updated within the timeout
-        this.outputChannel?.appendLine(`Warning: XML report file was not updated within ${maxWaitTime}ms. This might indicate an issue with TeaPie test execution.`);
     }
 }

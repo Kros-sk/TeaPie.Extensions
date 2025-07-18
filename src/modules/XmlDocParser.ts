@@ -63,7 +63,7 @@ export class XmlDocParser {
 
     private static cleanXmlText(text: any): string {
         if (typeof text !== 'string') {
-            console.log(`[XmlDocParser] Received non-string value in cleanXmlText:`, text);
+            this.outputChannel?.appendLine(`[XmlDocParser] Received non-string value in cleanXmlText: ${typeof text}`);
             return String(text || '');
         }
         return text
@@ -88,8 +88,11 @@ export class XmlDocParser {
         try {
             // Check cache first
             if (this.cache.has(xmlPath)) {
-                console.log(`[XmlDocParser] Using cached documentation for ${xmlPath}`);
-                return this.cache.get(xmlPath)!;
+                this.outputChannel?.appendLine(`[XmlDocParser] Using cached documentation for ${xmlPath}`);
+                const cached = this.cache.get(xmlPath);
+                if (cached) {
+                    return cached;
+                }
             }
 
             console.log(`[XmlDocParser] Reading file: ${xmlPath}`);
