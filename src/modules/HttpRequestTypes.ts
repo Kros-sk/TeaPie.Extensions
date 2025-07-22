@@ -42,6 +42,9 @@ export interface InternalRequest {
     responseStatusText?: string;
     responseBody?: string;
     duration?: string;
+    timeToFirstByte?: string;
+    requestSize?: number;
+    responseSize?: number;
     ErrorMessage?: string;
 }
 
@@ -62,6 +65,7 @@ export interface HttpRequestResult {
         Headers: { [key: string]: string };
         Body?: string;
         Duration: string;
+        Size?: number;
     };
     ErrorMessage?: string;
     Tests?: HttpTestResult[];

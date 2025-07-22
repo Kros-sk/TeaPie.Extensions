@@ -223,6 +223,21 @@ export class LogFileParser {
         return hasResponseIndicator || hasHttpStatus || hasStatusCode || hasStandaloneStatus;
     }
 
+    private static isLogRequestHeaderLine(line: string): boolean {
+        // Look for request header indicators in logs from TeaPie response body
+        return (line.includes('"headers"') || line.includes('"Authorization"') || 
+                line.includes('"Content-Type"') || line.includes('"User-Agent"') ||
+                line.includes('"Accept"') || line.includes('"Host"')) && line.includes(':');
+    }
+
+    private static isLogResponseHeaderLine(line: string): boolean {
+        // Look for response header indicators in logs
+        return line.includes('Response headers:') || 
+               (line.includes('Content-Length') || line.includes('Content-Type') || 
+                line.includes('Server') || line.includes('Date') ||
+                line.includes('Cache-Control') || line.includes('Set-Cookie')) && line.includes(':');
+    }
+
     private static isLogResponseBodyLine(line: string): boolean {
         // Look for response body indicators in logs - be more flexible
         return line.includes('Response Body:') || 
@@ -301,6 +316,9 @@ export class LogFileParser {
             responseHeaders: {},
             responseBody: '',
             duration: '0ms',
+            timeToFirstByte: undefined,
+            requestSize: undefined,
+            responseSize: undefined,
             uniqueKey: requestKey,
             title: httpFileRequest?.title || null,
             name: requestName,
@@ -405,15 +423,18 @@ export class LogFileParser {
                 statusText = teaPieMatch[2].trim();
                 LogFileParser.outputChannel?.appendLine(`[LogFileParser] Found TeaPie response pattern: ${statusCode} ${statusText}`);
                 
-                // Check if there's duration info in the same line or nearby
+                // Check if there's duration info in the same line
                 const durationMatch = line.match(/([\d.]+)ms/);
                 if (durationMatch) {
                     const duration = parseFloat(durationMatch[1]);
                     const requests = Array.from(pendingRequests.values());
                     if (requests.length > 0) {
                         const lastRequest = requests[requests.length - 1];
-                        lastRequest.duration = `${Math.round(duration)}ms`;
-                        LogFileParser.outputChannel?.appendLine(`[LogFileParser] Extracted duration from TeaPie pattern: ${lastRequest.duration}`);
+                        // Set duration if not already set by header pattern
+                        if (lastRequest.duration === '0ms') {
+                            lastRequest.duration = `${Math.round(duration)}ms`;
+                            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Extracted duration from TeaPie pattern: ${lastRequest.duration}`);
+                        }
                     }
                 }
             }
@@ -427,20 +448,27 @@ export class LogFileParser {
                 statusText = this.getDefaultStatusText(statusCode);
                 LogFileParser.outputChannel?.appendLine(`[LogFileParser] Found header response pattern: ${statusCode} ${statusText}`);
                 
-                // Also extract duration from this line
+                // Extract total duration from this line if available
                 const durationMatch = line.match(/after\s+([\d.]+)ms/);
                 if (durationMatch) {
                     const duration = parseFloat(durationMatch[1]);
-                    // Round to reasonable precision and assign to the most recent request
+                    // This could be either TTFB or total - we'll use it as the main duration
                     const requests = Array.from(pendingRequests.values());
                     if (requests.length > 0) {
                         const lastRequest = requests[requests.length - 1];
+                        // Use this as the main duration since it's often the most reliable timing
                         lastRequest.duration = `${Math.round(duration)}ms`;
                         LogFileParser.outputChannel?.appendLine(`[LogFileParser] Extracted duration: ${lastRequest.duration}`);
                     }
                 }
             }
         }
+        
+        // Extract headers from the response body if it contains header information
+        this.extractHeadersFromResponseBody(line, pendingRequests);
+        
+        // Extract size information
+        this.extractSizeInformation(line, pendingRequests);
         
         // Pattern 4: Status: 200, Code: 200, etc.
         if (!statusCode) {
@@ -702,7 +730,8 @@ export class LogFileParser {
                     StatusText: internalRequest.responseStatusText || 'OK',
                     Headers: internalRequest.responseHeaders,
                     Body: internalRequest.responseBody,
-                    Duration: internalRequest.duration || '0ms'
+                    Duration: internalRequest.duration || '0ms',
+                    Size: internalRequest.responseSize
                 } : undefined,
                 ErrorMessage: internalRequest.ErrorMessage,
                 Tests: testResults
@@ -732,5 +761,54 @@ export class LogFileParser {
                 }]
             }
         };
+    }
+
+    private static extractHeadersFromResponseBody(line: string, pendingRequests: Map<string, InternalRequest>): void {
+        // Extract headers from TeaPie response body which contains the actual headers sent
+        const requests = Array.from(pendingRequests.values());
+        if (requests.length === 0) return;
+        
+        const lastRequest = requests[requests.length - 1];
+        
+        // Look for header patterns in the response body (TeaPie logs the original request headers in the response)
+        const headerMatches = [
+            line.match(/"Authorization":\s*"([^"]+)"/),
+            line.match(/"User-Agent":\s*"([^"]+)"/),
+            line.match(/"Content-Type":\s*"([^"]+)"/),
+            line.match(/"Host":\s*"([^"]+)"/),
+            line.match(/"Accept":\s*"([^"]+)"/),
+            line.match(/"Content-Length":\s*"([^"]+)"/)
+        ];
+        
+        headerMatches.forEach((match, index) => {
+            if (match) {
+                const headerNames = ['Authorization', 'User-Agent', 'Content-Type', 'Host', 'Accept', 'Content-Length'];
+                const headerName = headerNames[index];
+                if (headerName) {
+                    lastRequest.requestHeaders[headerName] = match[1];
+                    LogFileParser.outputChannel?.appendLine(`[LogFileParser] Extracted request header: ${headerName}: ${match[1]}`);
+                }
+            }
+        });
+    }
+
+    private static extractSizeInformation(line: string, pendingRequests: Map<string, InternalRequest>): void {
+        const requests = Array.from(pendingRequests.values());
+        if (requests.length === 0) return;
+        
+        const lastRequest = requests[requests.length - 1];
+        
+        // Extract Content-Length for request size
+        const contentLengthMatch = line.match(/"Content-Length":\s*"(\d+)"/);
+        if (contentLengthMatch) {
+            lastRequest.requestSize = parseInt(contentLengthMatch[1], 10);
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Extracted request size: ${lastRequest.requestSize} bytes`);
+        }
+        
+        // Extract response size from response body (rough estimate)
+        if (line.includes('Response\'s body') && lastRequest.responseBody) {
+            lastRequest.responseSize = new Blob([lastRequest.responseBody]).size;
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Estimated response size: ${lastRequest.responseSize} bytes`);
+        }
     }
 }

@@ -207,6 +207,21 @@ private static readonly disposables: vscode.Disposable[] = [];
         }[c] || c));
     }
 
+    private static formatBytes(bytes: number): string {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    private static formatHeaders(headers: { [key: string]: string }): string {
+        if (!headers || Object.keys(headers).length === 0) return 'No headers';
+        return Object.entries(headers)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join('\n');
+    }
+
     private static renderRequestHeader(request: HttpRequestResult): string {
         const statusText = request.Status === STATUS_PASSED ? 'Success' : 'Fail';
         const hasTitle = request.Name && !request.Name.match(CONTENT_PATTERNS.HTTP_METHOD_URL);
@@ -242,9 +257,8 @@ private static readonly disposables: vscode.Disposable[] = [];
                             <li class="test-item ${test.Passed ? 'test-passed' : 'test-failed'}">
                                 <span class="test-status">${test.Passed ? '✔️' : '❌'}</span>
                                 <span class="test-name">${this.escapeHtml(test.Name)}</span>
-                                ${test.Message && `<span class="test-message">${this.escapeHtml(test.Message)}</span>`}
-                            </li>
-                        `).join('')}
+                                ${test.Message ? `<span class="test-message">${this.escapeHtml(test.Message)}</span>` : ''}
+                            </li>`).join('')}
                     </ul>
                 </div>
             `;
@@ -255,6 +269,20 @@ private static readonly disposables: vscode.Disposable[] = [];
             const resolvedUrl = this.escapeHtml(Url);
             const templateUrl = this.escapeHtml(TemplateUrl || Url);
             const hasTemplate = TemplateUrl && TemplateUrl !== Url;
+            
+            // Request headers rendering
+            const hasHeaders = request.Request.Headers && Object.keys(request.Request.Headers).length > 0;
+            const headersHtml = hasHeaders ? `
+                <div class="headers-container">
+                    <div class="headers-toggle" onclick="toggleSection('request-headers-${idx}')">
+                        <span>Request Headers</span>
+                        <span class="toggle-icon">▶</span>
+                    </div>
+                    <div class="headers-content collapsed" id="request-headers-${idx}">
+                        <pre class="headers-body">${this.formatHeaders(request.Request.Headers)}</pre>
+                    </div>
+                </div>` : '';
+            
             return `
                 <div class="section">
                     <h4>Request</h4>
@@ -264,14 +292,18 @@ private static readonly disposables: vscode.Disposable[] = [];
                         ${hasTemplate && `<button class="toggle-url-btn" id="toggle-url-btn-${idx}" data-idx="${idx}">Show Variables</button>`}
                         ${this.renderCopyButton(`url-${idx}`)}
                     </div>
+                    ${headersHtml}
                     ${body && `
                     <div class="body-container">
-                        <div class="body-header">
-                            <span>Request Body</span>
-                        </div>
-                        <div class="code-block">
-                            <pre class="body json" id="request-${idx}">${body}</pre>
-                            ${this.renderCopyButton(`request-${idx}`, true)}
+                    <div class="body-toggle" onclick="toggleSection('request-body-${idx}')">
+                        <span>Request Body</span>
+                        <span class="toggle-icon expanded">▼</span>
+                    </div>
+                    <div class="body-content" id="request-body-${idx}">
+                            <div class="code-block">
+                                <pre class="body json" id="request-${idx}">${body}</pre>
+                                ${this.renderCopyButton(`request-${idx}`, true)}
+                            </div>
                         </div>
                     </div>`}
                     ${testHtml}
@@ -293,22 +325,46 @@ private static readonly disposables: vscode.Disposable[] = [];
         if (!request.Response) return '';
         const statusClass = request.Response.StatusCode >= 200 && request.Response.StatusCode < 300 ? 'success' : 'error';
         const body = this.formatBody(request.Response.Body);
+        
+        // Simple timing information - just show total duration
+        const timingText = request.Response.Duration;
+        
+        // Size information
+        const sizeInfo = request.Response.Size ? ` (${this.formatBytes(request.Response.Size)})` : '';
+        
+        // Headers rendering
+        const hasHeaders = request.Response.Headers && Object.keys(request.Response.Headers).length > 0;
+        const headersHtml = hasHeaders ? `
+            <div class="headers-container">
+                <div class="headers-toggle" onclick="toggleSection('response-headers-${idx}')">
+                    <span>Response Headers</span>
+                    <span class="toggle-icon">▶</span>
+                </div>
+                <div class="headers-content collapsed" id="response-headers-${idx}">
+                    <pre class="headers-body">${this.formatHeaders(request.Response.Headers)}</pre>
+                </div>
+            </div>` : '';
+        
         return `
             <div class="section">
                 <h4>Response</h4>
                 <div class="status-line">
                     <span class="status-code status-${statusClass}">${request.Response.StatusCode}</span>
                     <span class="status-text">${this.escapeHtml(request.Response.StatusText)}</span>
-                    <span class="duration">${this.escapeHtml(request.Response.Duration)}</span>
+                    <span class="duration">${timingText}${sizeInfo}</span>
                 </div>
+                ${headersHtml}
                 ${body && `
                 <div class="body-container">
-                    <div class="body-header">
+                    <div class="body-toggle" onclick="toggleSection('response-body-${idx}')">
                         <span>Response Body</span>
+                        <span class="toggle-icon">▶</span>
                     </div>
-                    <div class="code-block">
-                        <pre class="body json" id="response-${idx}">${body}</pre>
-                        ${this.renderCopyButton(`response-${idx}`, true)}
+                    <div class="body-content collapsed" id="response-body-${idx}">
+                        <div class="code-block">
+                            <pre class="body json" id="response-${idx}">${body}</pre>
+                            ${this.renderCopyButton(`response-${idx}`, true)}
+                        </div>
                     </div>
                 </div>`}
             </div>`;
@@ -488,11 +544,11 @@ private static readonly disposables: vscode.Disposable[] = [];
             .section { margin-bottom: 20px; }
             .section h4 { margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: var(--vscode-descriptionForeground); text-transform: uppercase; }
             .method-url { display: flex; align-items: center; gap: 15px; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 6px; }
-            .method { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; min-width: 50px; text-align: center; color: white; }
+            .method { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; min-width: 50px; text-align: center; color: var(--vscode-button-foreground); }
             .method-get { background: var(--vscode-terminal-ansiGreen); } .method-post { background: var(--vscode-terminal-ansiYellow); } .method-put { background: var(--vscode-terminal-ansiBlue); } .method-delete { background: var(--vscode-terminal-ansiRed); }
             .url { font-family: monospace; font-weight: 500; word-break: break-all; flex: 1; }
             .status-line { display: flex; align-items: center; gap: 15px; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 6px; }
-            .status-code { padding: 4px 8px; border-radius: 4px; font-weight: bold; min-width: 40px; text-align: center; color: white; }
+            .status-code { padding: 4px 8px; border-radius: 4px; font-weight: bold; min-width: 40px; text-align: center; color: var(--vscode-button-foreground); }
             .status-success { background: var(--vscode-terminal-ansiGreen); } .status-error { background: var(--vscode-terminal-ansiRed); }
             .status-text { font-weight: 500; flex: 1; }
             .duration { font-size: 12px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); padding: 2px 6px; border-radius: 3px; }
@@ -528,6 +584,97 @@ private static readonly disposables: vscode.Disposable[] = [];
             .test-status { font-size: 16px; margin-right: 4px; }
             .test-name { font-family: monospace; font-weight: 500; }
             .test-message { margin-left: 8px; color: var(--vscode-descriptionForeground); font-style: italic; }
+            
+            /* Collapsible sections */
+            .headers-toggle, .body-toggle { 
+                background: var(--vscode-button-secondaryBackground); 
+                color: var(--vscode-button-secondaryForeground); 
+                border: none; 
+                border-radius: 3px; 
+                padding: 4px 8px; 
+                cursor: pointer; 
+                font-size: 11px; 
+                margin-bottom: 8px; 
+                display: inline-flex; 
+                align-items: center; 
+                gap: 5px; 
+            }
+            .headers-toggle:hover, .body-toggle:hover { 
+                background: var(--vscode-button-secondaryHoverBackground); 
+            }
+            .toggle-icon { 
+                transition: transform 0.2s ease; 
+                font-weight: bold; 
+            }
+            .toggle-icon.expanded { 
+                transform: rotate(0deg); 
+            }
+            .headers-content, .body-content { 
+                margin-top: 5px; 
+            }
+            .headers-content.collapsed, .body-content.collapsed { 
+                display: none; 
+            }
+            
+            /* Enhanced timing display */
+            .timing-container { 
+                display: flex; 
+                gap: 15px; 
+                align-items: center; 
+                flex-wrap: wrap; 
+            }
+            .timing-item { 
+                display: flex; 
+                align-items: center; 
+                gap: 5px; 
+                font-size: 12px; 
+            }
+            .timing-label { 
+                color: var(--vscode-descriptionForeground); 
+                font-weight: 500; 
+            }
+            .timing-value { 
+                color: var(--vscode-badge-foreground); 
+                background: var(--vscode-badge-background); 
+                padding: 2px 6px; 
+                border-radius: 3px; 
+                font-weight: 600; 
+            }
+            
+            /* Size information */
+            .size-info { 
+                font-size: 12px; 
+                color: var(--vscode-descriptionForeground); 
+                margin-left: 10px; 
+            }
+            
+            /* Headers display */
+            .headers-list { 
+                background: var(--vscode-textCodeBlock-background); 
+                border: 1px solid var(--vscode-panel-border); 
+                border-radius: 6px; 
+                overflow: hidden; 
+            }
+            .header-item { 
+                display: flex; 
+                padding: 8px 12px; 
+                border-bottom: 1px solid var(--vscode-panel-border); 
+            }
+            .header-item:last-child { 
+                border-bottom: none; 
+            }
+            .header-name { 
+                font-weight: 600; 
+                color: var(--vscode-debugTokenExpression-name); 
+                min-width: 150px; 
+                margin-right: 15px; 
+                font-family: monospace; 
+            }
+            .header-value { 
+                font-family: monospace; 
+                word-break: break-all; 
+                color: var(--vscode-editor-foreground); 
+            }
         `;
     }
 
@@ -572,6 +719,28 @@ private static readonly disposables: vscode.Disposable[] = [];
                     }
                 });
             });
+
+            // Toggle sections functionality
+            window.toggleSection = function(sectionId) {
+                const content = document.getElementById(sectionId);
+                const toggleBtn = document.querySelector('[onclick*="' + sectionId + '"]');
+                if (!content || !toggleBtn) return;
+                
+                const icon = toggleBtn.querySelector('.toggle-icon');
+                if (content.classList.contains('collapsed')) {
+                    content.classList.remove('collapsed');
+                    if (icon) {
+                        icon.classList.add('expanded');
+                        icon.textContent = '▼';
+                    }
+                } else {
+                    content.classList.add('collapsed');
+                    if (icon) {
+                        icon.classList.remove('expanded');
+                        icon.textContent = '▶';
+                    }
+                }
+            };
         `;
     }
 }
