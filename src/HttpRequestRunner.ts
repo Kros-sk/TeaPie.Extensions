@@ -13,7 +13,6 @@ import {
     HttpTestResult 
 } from './modules/HttpRequestTypes';
 import { HttpFileParser } from './modules/HttpFileParser';
-import { CliOutputParser } from './modules/CliOutputParser';
 import { TeaPieExecutor } from './modules/TeaPieExecutor';
 import { 
     CONTENT_PATTERNS

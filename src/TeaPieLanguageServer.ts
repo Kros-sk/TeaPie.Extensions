@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { XmlDocMember, XmlDocParser } from './modules/XmlDocParser';
+import { XmlDocMember, XmlDocParser } from './XmlDocParser';
 
 // Create output channel for logging
 let outputChannel: vscode.OutputChannel;

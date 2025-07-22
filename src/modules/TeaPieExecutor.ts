@@ -4,15 +4,15 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import { 
+    STATUS_FAILED,
     ERROR_CONNECTION_REFUSED,
     ERROR_HOST_NOT_FOUND,
     ERROR_TIMEOUT,
     ERROR_EXECUTION_FAILED,
     ERROR_NO_HTTP_FOUND
-} from '../constants/cliPatterns';
-import { STATUS_FAILED } from '../constants/httpResults';
+} from '../constants/httpResults';
 import { HttpRequestResults, CliParseResult, HttpTestResult } from './HttpRequestTypes';
-import { CliOutputParser } from './CliOutputParser';
+import { LogFileParser } from './LogFileParser';
 import { XmlTestParser } from './XmlTestParser';
 
 const execAsync = promisify(exec);
@@ -26,6 +26,7 @@ export class TeaPieExecutor {
     static setOutputChannel(channel: vscode.OutputChannel) {
         this.outputChannel = channel;
         XmlTestParser.setOutputChannel(channel);
+        LogFileParser.setOutputChannel(channel);
     }
 
     static async executeTeaPie(filePath: string): Promise<HttpRequestResults> {
@@ -40,13 +41,18 @@ export class TeaPieExecutor {
         
         const envParam = currentEnv ? ` -e "${currentEnv}"` : '';
         const reportPath = path.join(workspaceFolder.uri.fsPath, '.teapie', 'reports', 'last-run-report.xml');
-        const command = `teapie test "${filePath}" --no-logo --verbose -r "${reportPath}"${envParam}`;
+        const logPath = path.join(workspaceFolder.uri.fsPath, '.teapie', 'logs', 'last-run.log');
+        
+        // Updated command to include log file parameters
+        const command = `teapie test "${filePath}" --no-logo --verbose -r "${reportPath}" --log-file "${logPath}" --log-file-log-level Trace${envParam}`;
         
         this.outputChannel?.appendLine(`Executing TeaPie command: ${command}`);
         
-        // Ensure reports directory exists
+        // Ensure reports and logs directories exist
         const reportsDir = path.dirname(reportPath);
+        const logsDir = path.dirname(logPath);
         await fs.mkdir(reportsDir, { recursive: true });
+        await fs.mkdir(logsDir, { recursive: true });
         
         // Get timestamp of existing report file (0 if doesn't exist)
         const beforeTimestamp = await fs.stat(reportPath)
@@ -61,7 +67,7 @@ export class TeaPieExecutor {
             
             await XmlTestParser.waitForXmlReportUpdate(reportPath, beforeTimestamp);
             
-            const result = await this.parseOutput(stdout, filePath, workspaceFolder.uri.fsPath);
+            const result = await this.parseOutput(stdout, filePath, workspaceFolder.uri.fsPath, logPath);
             if (!result.RequestGroups?.RequestGroup?.[0]?.Requests?.length) {
                 return this.createFailedResult(filePath, ERROR_NO_HTTP_FOUND);
             }
@@ -72,7 +78,7 @@ export class TeaPieExecutor {
                 try {
                     await XmlTestParser.waitForXmlReportUpdate(reportPath, beforeTimestamp);
                     
-                    const result = await this.parseOutput(execError.stdout, filePath, workspaceFolder.uri.fsPath);
+                    const result = await this.parseOutput(execError.stdout, filePath, workspaceFolder.uri.fsPath, logPath);
                     if (!result.RequestGroups?.RequestGroup?.[0]?.Requests?.length) {
                         return this.createFailedResult(filePath, this.mapConnectionError(execError.message || String(error)));
                     }
@@ -86,22 +92,30 @@ export class TeaPieExecutor {
     }
 
     /**
-     * Parses TeaPie CLI output and returns structured HTTP request results
+     * Parses TeaPie log file and returns structured HTTP request results
      */
-    private static async parseOutput(stdout: string, filePath: string, workspacePath: string): Promise<HttpRequestResults> {
+    private static async parseOutput(stdout: string, filePath: string, workspacePath: string, logPath: string): Promise<HttpRequestResults> {
         const fileName = path.basename(filePath, path.extname(filePath));
         
         // Parse test results from XML file
         const testResultsFromXml = await XmlTestParser.parseTestResultsFromXml(workspacePath, filePath);
         
-        // Parse the CLI stdout to extract request/response data
-        const cliParseResult = await CliOutputParser.parseCliOutput(stdout, filePath);
+        // Parse the log file to extract request/response data
+        let logParseResult: CliParseResult;
+        try {
+            logParseResult = await LogFileParser.parseLogFile(logPath, filePath);
+            this.outputChannel?.appendLine(`[TeaPieExecutor] Successfully parsed log file: ${logPath}`);
+        } catch (logError) {
+            this.outputChannel?.appendLine(`[TeaPieExecutor] Failed to parse log file: ${logError}`);
+            // Return error result if log file parsing fails
+            return this.createFailedResult(filePath, `Failed to parse TeaPie log file: ${logError}`);
+        }
         
-        // Build final results combining CLI data with test results
+        // Build final results combining log data with test results
         return this.buildHttpRequestResults(
             fileName,
             filePath,
-            cliParseResult,
+            logParseResult,
             testResultsFromXml
         );
     }
@@ -109,13 +123,13 @@ export class TeaPieExecutor {
     private static buildHttpRequestResults(
         fileName: string,
         filePath: string,
-        cliResult: CliParseResult,
+        logResult: CliParseResult,
         testResultsFromXml: Map<string, HttpTestResult[]>
     ): HttpRequestResults {
-        return CliOutputParser.buildHttpRequestResults(
+        return LogFileParser.buildHttpRequestResults(
             fileName,
             filePath,
-            cliResult,
+            logResult,
             testResultsFromXml
         );
     }
