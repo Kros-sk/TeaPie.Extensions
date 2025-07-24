@@ -42,10 +42,27 @@ export interface InternalRequest {
     responseStatusText?: string;
     responseBody?: string;
     duration?: string;
-    timeToFirstByte?: string;
-    requestSize?: number;
-    responseSize?: number;
     ErrorMessage?: string;
+    retryInfo?: RetryInfo;
+}
+
+export interface RetryAttempt {
+    attemptNumber: number;
+    statusCode?: number;
+    statusText?: string;
+    errorMessage?: string;
+    duration?: string;
+    timestamp?: string;
+    success: boolean;
+}
+
+export interface RetryInfo {
+    strategyName?: string;
+    maxAttempts?: number;
+    actualAttempts?: number;
+    backoffType?: string;
+    wasRetried?: boolean;
+    attempts?: RetryAttempt[];
 }
 
 export interface HttpRequestResult {
@@ -65,10 +82,10 @@ export interface HttpRequestResult {
         Headers: { [key: string]: string };
         Body?: string;
         Duration: string;
-        Size?: number;
     };
     ErrorMessage?: string;
     Tests?: HttpTestResult[];
+    RetryInfo?: RetryInfo;
 }
 
 export interface HttpFileRequest {

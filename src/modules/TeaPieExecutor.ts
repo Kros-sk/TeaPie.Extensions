@@ -39,14 +39,18 @@ export class TeaPieExecutor {
         const currentEnv = config.get<string>('currentEnvironment');
         const timeout = config.get<number>('requestTimeout', 60000);
         
+        // Use unique file names with timestamp to prevent cache issues
+        const timestamp = Date.now();
         const envParam = currentEnv ? ` -e "${currentEnv}"` : '';
-        const reportPath = path.join(workspaceFolder.uri.fsPath, '.teapie', 'reports', 'last-run-report.xml');
-        const logPath = path.join(workspaceFolder.uri.fsPath, '.teapie', 'logs', 'last-run.log');
+        const reportPath = path.join(workspaceFolder.uri.fsPath, '.teapie', 'reports', `run-${timestamp}-report.xml`);
+        const logPath = path.join(workspaceFolder.uri.fsPath, '.teapie', 'logs', `run-${timestamp}.log`);
         
-        // Updated command to include log file parameters
+        // Updated command to include log file parameters with unique names
         const command = `teapie test "${filePath}" --no-logo --verbose -r "${reportPath}" --log-file "${logPath}" --log-file-log-level Trace${envParam}`;
         
         this.outputChannel?.appendLine(`Executing TeaPie command: ${command}`);
+        this.outputChannel?.appendLine(`Report file: ${reportPath}`);
+        this.outputChannel?.appendLine(`Log file: ${logPath}`);
         
         // Ensure reports and logs directories exist
         const reportsDir = path.dirname(reportPath);
@@ -73,21 +77,42 @@ export class TeaPieExecutor {
             }
             return result;
         } catch (error: unknown) {
-            const execError = error as { stdout?: string; message?: string };
+            const execError = error as { stdout?: string; stderr?: string; message?: string; code?: number };
+            
+            this.outputChannel?.appendLine(`[TeaPieExecutor] TeaPie execution failed: ${execError.message}`);
+            this.outputChannel?.appendLine(`[TeaPieExecutor] Exit code: ${execError.code}`);
+            
+            // Try to extract meaningful error from TeaPie stdout/stderr first
+            let meaningfulError = '';
+            if (execError.stdout || execError.stderr) {
+                meaningfulError = this.extractTeaPieError(execError.stdout || '', execError.stderr || '');
+            }
+            
+            // If we couldn't extract a meaningful error, fall back to the raw message
+            if (!meaningfulError) {
+                meaningfulError = execError.message || String(error);
+            }
+            
+            // Even when TeaPie fails with non-zero exit code, it might still generate useful results
+            // This happens especially with test failures (e.g., TEST-SUCCESSFUL-STATUS: False when request succeeds)
+            // First, try to parse the output and XML reports
             if (execError.stdout) {
                 try {
                     await XmlTestParser.waitForXmlReportUpdate(reportPath, beforeTimestamp);
                     
                     const result = await this.parseOutput(execError.stdout, filePath, workspaceFolder.uri.fsPath, logPath);
-                    if (!result.RequestGroups?.RequestGroup?.[0]?.Requests?.length) {
-                        return this.createFailedResult(filePath, this.mapConnectionError(execError.message || String(error)));
+                    if (result.RequestGroups?.RequestGroup?.[0]?.Requests?.length) {
+                        this.outputChannel?.appendLine(`[TeaPieExecutor] Successfully parsed results despite TeaPie exit code ${execError.code}`);
+                        return result;
                     }
-                    return result;
                 } catch (parseError) {
-                    // Failed to parse even with stdout, fall through to error handling
+                    this.outputChannel?.appendLine(`[TeaPieExecutor] Failed to parse results from failed execution: ${parseError}`);
                 }
             }
-            return this.createFailedResult(filePath, this.mapConnectionError(execError.message || String(error)));
+            
+            // If we can't parse useful results, then treat it as a true execution failure
+            this.outputChannel?.appendLine(`[TeaPieExecutor] No valid results found, treating as execution failure`);
+            return this.createFailedResult(filePath, this.mapConnectionError(meaningfulError));
         }
     }
 
@@ -135,14 +160,56 @@ export class TeaPieExecutor {
     }
 
     private static mapConnectionError(errorMessage: string): string {
-        if (errorMessage?.includes('ECONNREFUSED') || errorMessage?.includes('connection refused')) {
-            return ERROR_CONNECTION_REFUSED;
-        } else if (errorMessage?.includes('ENOTFOUND') || errorMessage?.includes('getaddrinfo')) {
-            return ERROR_HOST_NOT_FOUND;
-        } else if (errorMessage?.includes('timeout')) {
-            return ERROR_TIMEOUT;
+        // If the error message already has structured format (Reason:/Details:), use it as-is
+        if (errorMessage.includes('Reason:') && errorMessage.includes('Details:')) {
+            return errorMessage;
         }
-        return ERROR_EXECUTION_FAILED;
+        
+        // Otherwise, map to user-friendly messages with details
+        if (errorMessage?.includes('ECONNREFUSED') || errorMessage?.includes('connection refused') || errorMessage?.includes('actively refused')) {
+            return `${ERROR_CONNECTION_REFUSED}\n\nDetailed error: ${errorMessage}`;
+        } else if (errorMessage?.includes('ENOTFOUND') || errorMessage?.includes('getaddrinfo')) {
+            return `${ERROR_HOST_NOT_FOUND}\n\nDetailed error: ${errorMessage}`;
+        } else if (errorMessage?.includes('timeout')) {
+            return `${ERROR_TIMEOUT}\n\nDetailed error: ${errorMessage}`;
+        }
+        return `${ERROR_EXECUTION_FAILED}\n\nDetailed error: ${errorMessage}`;
+    }
+
+    /**
+     * Extracts meaningful error information from TeaPie stdout/stderr
+     */
+    private static extractTeaPieError(stdout: string, stderr: string): string {
+        const output = stdout + '\n' + stderr;
+        
+        // Look for TeaPie's structured error output
+        const reasonMatch = output.match(/Reason:\s*(.+)/);
+        const detailsMatch = output.match(/Details:\s*(.+)/);
+        
+        if (reasonMatch && detailsMatch) {
+            return `Reason: ${reasonMatch[1].trim()}\nDetails: ${detailsMatch[1].trim()}`;
+        }
+        
+        // Look for specific error patterns in the output
+        const connectionRefusedMatch = output.match(/No connection could be made because the target machine actively refused it\. \(([^)]+)\)/);
+        if (connectionRefusedMatch) {
+            return `Reason: Application Error\nDetails: No connection could be made because the target machine actively refused it. (${connectionRefusedMatch[1]})`;
+        }
+        
+        // Look for other common error patterns
+        const hostNotFoundMatch = output.match(/No such host is known\. \(([^)]+)\)/);
+        if (hostNotFoundMatch) {
+            return `Reason: Application Error\nDetails: No such host is known. (${hostNotFoundMatch[1]})`;
+        }
+        
+        // Look for general exception messages
+        const exceptionMatch = output.match(/Exception was thrown during execution[^:]*:\s*([^.]+\.)/);
+        if (exceptionMatch) {
+            return `Reason: Application Error\nDetails: ${exceptionMatch[1].trim()}`;
+        }
+        
+        // If no structured error found, return empty string to fall back to raw message
+        return '';
     }
 
     private static createFailedResult(filePath: string, errorMessage: string): HttpRequestResults {

@@ -16,8 +16,43 @@ export class XmlTestParser {
         const testResults = new Map<string, HttpTestResult[]>();
         
         try {
-            const reportPath = `${workspacePath}/.teapie/reports/last-run-report.xml`;
+            // Look for the most recent test report file
+            const reportsDir = `${workspacePath}/.teapie/reports`;
+            
+            let reportPath: string;
+            try {
+                // First try the expected last-run-report.xml
+                reportPath = `${reportsDir}/last-run-report.xml`;
+                await fs.access(reportPath);
+                this.outputChannel?.appendLine(`[XmlTestParser] Found last-run-report.xml`);
+            } catch {
+                // If not found, look for the most recent timestamped report
+                try {
+                    const files = await fs.readdir(reportsDir);
+                    const reportFiles = files.filter((f: string) => f.startsWith('run-') && f.endsWith('-report.xml'));
+                    
+                    if (reportFiles.length === 0) {
+                        this.outputChannel?.appendLine(`[XmlTestParser] No test report files found in ${reportsDir}`);
+                        return testResults;
+                    }
+                    
+                    // Sort by timestamp (newest first) and take the most recent
+                    reportFiles.sort((a: string, b: string) => {
+                        const timestampA = parseInt(a.match(/run-(\d+)-report\.xml/)?.[1] || '0');
+                        const timestampB = parseInt(b.match(/run-(\d+)-report\.xml/)?.[1] || '0');
+                        return timestampB - timestampA;
+                    });
+                    
+                    reportPath = `${reportsDir}/${reportFiles[0]}`;
+                    this.outputChannel?.appendLine(`[XmlTestParser] Using most recent report: ${reportFiles[0]}`);
+                } catch (dirError) {
+                    this.outputChannel?.appendLine(`[XmlTestParser] Failed to read reports directory: ${dirError}`);
+                    return testResults;
+                }
+            }
+            
             const xmlContent = await fs.readFile(reportPath, 'utf8');
+            this.outputChannel?.appendLine(`[XmlTestParser] Successfully read XML report file: ${reportPath}`);
             
             const testSuiteRegex = /<testsuite[^>]*name="([^"]*)"[^>]*>([\s\S]*?)<\/testsuite>/gs;
             const testCaseRegex = /<testcase[^>]*?name="([^"]*?)"[^>]*?(?:\s*\/\s*>|>([\s\S]*?)<\/testcase>)/g;
@@ -64,6 +99,7 @@ export class XmlTestParser {
                     } else {
                         // Distribute tests based on test directive counts in the HTTP file
                         const httpFileRequests = await import('./HttpFileParser').then(m => m.HttpFileParser.parseHttpFileForNames(filePath));
+                        
                         if (httpFileRequests.some(req => req.hasTestDirectives)) {
                             // Calculate total expected inline tests (excluding custom CSX tests)
                             const totalInlineTests = httpFileRequests.reduce((sum, req) => sum + (req.testDirectiveCount || 0), 0);

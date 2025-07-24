@@ -207,14 +207,6 @@ private static readonly disposables: vscode.Disposable[] = [];
         }[c] || c));
     }
 
-    private static formatBytes(bytes: number): string {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-    }
-
     private static formatHeaders(headers: { [key: string]: string }): string {
         if (!headers || Object.keys(headers).length === 0) return 'No headers';
         return Object.entries(headers)
@@ -244,6 +236,7 @@ private static readonly disposables: vscode.Disposable[] = [];
 
     private static renderRequestSection(request: HttpRequestResult, idx: number): string {
         let testHtml = '';
+        
         if (request.Tests?.length) {
             const allPassed = request.Tests.every(t => t.Passed);
             const summaryClass = allPassed ? 'test-passed-summary' : 'test-failed-summary';
@@ -306,6 +299,7 @@ private static readonly disposables: vscode.Disposable[] = [];
                             </div>
                         </div>
                     </div>`}
+                    ${this.renderRetrySection(request, idx)}
                     ${testHtml}
                 </div>`;
         } else if (request.ErrorMessage && !request.Response) {
@@ -321,6 +315,79 @@ private static readonly disposables: vscode.Disposable[] = [];
         return testHtml;
     }
 
+    private static renderRetrySection(request: HttpRequestResult, idx: number): string {
+        if (!request.RetryInfo || (!request.RetryInfo.wasRetried && !request.RetryInfo.maxAttempts)) {
+            return '';
+        }
+
+        const { strategyName, maxAttempts, actualAttempts, backoffType, wasRetried } = request.RetryInfo;
+        
+        let retryStatusHtml = '';
+        if (wasRetried) {
+            const attemptsText = actualAttempts ? `${actualAttempts}/${maxAttempts || 'unknown'}` : 'unknown';
+            retryStatusHtml = `
+                <div class="retry-status retried">
+                    <span class="retry-icon">🔄</span>
+                    <span class="retry-text">Request was retried (${attemptsText} attempts)</span>
+                </div>`;
+        } else if (maxAttempts && maxAttempts > 1) {
+            retryStatusHtml = `
+                <div class="retry-status configured">
+                    <span class="retry-icon">⚡</span>
+                    <span class="retry-text">Retry configured (max ${maxAttempts} attempts)</span>
+                </div>`;
+        }
+
+        const retryDetailsHtml = `
+            <div class="retry-details">
+                ${strategyName ? `<div class="retry-detail"><strong>Strategy:</strong> ${this.escapeHtml(strategyName)}</div>` : ''}
+                ${maxAttempts ? `<div class="retry-detail"><strong>Max Attempts:</strong> ${maxAttempts}</div>` : ''}
+                ${actualAttempts ? `<div class="retry-detail"><strong>Actual Attempts:</strong> ${actualAttempts}</div>` : ''}
+                ${backoffType ? `<div class="retry-detail"><strong>Backoff Type:</strong> ${this.escapeHtml(backoffType)}</div>` : ''}
+                ${this.renderRetryAttempts(request.RetryInfo)}
+            </div>`;
+
+        return `
+            <div class="retry-container">
+                <div class="retry-toggle" onclick="toggleSection('retry-info-${idx}')">
+                    <span>Retry Information</span>
+                    <span class="toggle-icon">▶</span>
+                </div>
+                <div class="retry-content collapsed" id="retry-info-${idx}">
+                    ${retryStatusHtml}
+                    ${retryDetailsHtml}
+                </div>
+            </div>`;
+    }
+
+    private static renderRetryAttempts(retryInfo: import('./modules/HttpRequestTypes').RetryInfo): string {
+        if (!retryInfo.attempts || retryInfo.attempts.length === 0) {
+            return '';
+        }
+
+        const attemptsHtml = retryInfo.attempts.map((attempt, index) => {
+            const statusIcon = attempt.success ? '✅' : '❌';
+            const statusClass = attempt.success ? 'success' : 'failed';
+            const statusText = attempt.statusCode ? 
+                `${attempt.statusCode} ${attempt.statusText || ''}` : 
+                (attempt.errorMessage || 'Failed');
+            
+            return `
+                <div class="retry-attempt ${statusClass}">
+                    <span class="attempt-icon">${statusIcon}</span>
+                    <span class="attempt-number">Attempt ${attempt.attemptNumber}</span>
+                    <span class="attempt-status">${this.escapeHtml(statusText)}</span>
+                    ${attempt.timestamp ? `<span class="attempt-time">${attempt.timestamp}</span>` : ''}
+                </div>`;
+        }).join('');
+
+        return `
+            <div class="retry-attempts">
+                <div class="retry-attempts-header"><strong>Retry Attempts:</strong></div>
+                ${attemptsHtml}
+            </div>`;
+    }
+
     private static renderResponseSection(request: HttpRequestResult, idx: number): string {
         if (!request.Response) return '';
         const statusClass = request.Response.StatusCode >= 200 && request.Response.StatusCode < 300 ? 'success' : 'error';
@@ -328,9 +395,6 @@ private static readonly disposables: vscode.Disposable[] = [];
         
         // Simple timing information - just show total duration
         const timingText = request.Response.Duration;
-        
-        // Size information
-        const sizeInfo = request.Response.Size ? ` (${this.formatBytes(request.Response.Size)})` : '';
         
         // Headers rendering
         const hasHeaders = request.Response.Headers && Object.keys(request.Response.Headers).length > 0;
@@ -351,7 +415,7 @@ private static readonly disposables: vscode.Disposable[] = [];
                 <div class="status-line">
                     <span class="status-code status-${statusClass}">${request.Response.StatusCode}</span>
                     <span class="status-text">${this.escapeHtml(request.Response.StatusText)}</span>
-                    <span class="duration">${timingText}${sizeInfo}</span>
+                    <span class="duration">${timingText}</span>
                 </div>
                 ${headersHtml}
                 ${body && `
@@ -553,8 +617,6 @@ private static readonly disposables: vscode.Disposable[] = [];
             .status-text { font-weight: 500; flex: 1; }
             .duration { font-size: 12px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); padding: 2px 6px; border-radius: 3px; }
             .body-container { margin-top: 10px; }
-            .body-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
-            .body-header span { font-size: 12px; font-weight: 600; color: var(--vscode-descriptionForeground); text-transform: uppercase; }
             .code-block { position: relative; }
             .copy-btn { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; font-size: 11px; }
             .copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
@@ -616,64 +678,113 @@ private static readonly disposables: vscode.Disposable[] = [];
                 display: none; 
             }
             
-            /* Enhanced timing display */
-            .timing-container { 
-                display: flex; 
-                gap: 15px; 
-                align-items: center; 
-                flex-wrap: wrap; 
-            }
-            .timing-item { 
-                display: flex; 
+            /* Retry section styles */
+            .retry-container { margin-top: 10px; }
+            .retry-toggle { 
+                background: var(--vscode-button-secondaryBackground); 
+                color: var(--vscode-button-secondaryForeground); 
+                border: none; 
+                border-radius: 3px; 
+                padding: 4px 8px; 
+                cursor: pointer; 
+                font-size: 11px; 
+                margin-bottom: 8px; 
+                display: inline-flex; 
                 align-items: center; 
                 gap: 5px; 
-                font-size: 12px; 
             }
-            .timing-label { 
-                color: var(--vscode-descriptionForeground); 
+            .retry-toggle:hover { 
+                background: var(--vscode-button-secondaryHoverBackground); 
+            }
+            .retry-content { 
+                margin-top: 5px; 
+            }
+            .retry-content.collapsed { 
+                display: none; 
+            }
+            .retry-status { 
+                display: flex; 
+                align-items: center; 
+                gap: 8px; 
+                padding: 8px 12px; 
+                border-radius: 4px; 
+                margin-bottom: 8px; 
+                font-size: 13px; 
                 font-weight: 500; 
             }
-            .timing-value { 
-                color: var(--vscode-badge-foreground); 
-                background: var(--vscode-badge-background); 
-                padding: 2px 6px; 
-                border-radius: 3px; 
-                font-weight: 600; 
+            .retry-status.retried { 
+                background: var(--vscode-terminal-ansiYellow); 
+                color: var(--vscode-button-foreground); 
             }
-            
-            /* Size information */
-            .size-info { 
-                font-size: 12px; 
-                color: var(--vscode-descriptionForeground); 
-                margin-left: 10px; 
+            .retry-status.configured { 
+                background: var(--vscode-button-secondaryBackground); 
+                color: var(--vscode-button-secondaryForeground); 
             }
-            
-            /* Headers display */
-            .headers-list { 
+            .retry-icon { 
+                font-size: 16px; 
+            }
+            .retry-details { 
                 background: var(--vscode-textCodeBlock-background); 
-                border: 1px solid var(--vscode-panel-border); 
-                border-radius: 6px; 
-                overflow: hidden; 
+                padding: 10px; 
+                border-radius: 4px; 
+                border-left: 3px solid var(--vscode-terminal-ansiYellow); 
             }
-            .header-item { 
-                display: flex; 
-                padding: 8px 12px; 
-                border-bottom: 1px solid var(--vscode-panel-border); 
+            .retry-detail { 
+                margin-bottom: 4px; 
+                font-size: 12px; 
             }
-            .header-item:last-child { 
-                border-bottom: none; 
+            .retry-detail:last-child { 
+                margin-bottom: 0; 
             }
-            .header-name { 
-                font-weight: 600; 
-                color: var(--vscode-debugTokenExpression-name); 
-                min-width: 150px; 
-                margin-right: 15px; 
-                font-family: monospace; 
+            
+            /* Retry attempts styles */
+            .retry-attempts {
+                margin-top: 10px;
+                padding: 8px;
+                background: var(--vscode-editor-background);
+                border-radius: 4px;
+                border: 1px solid var(--vscode-panel-border);
             }
-            .header-value { 
-                font-family: monospace; 
-                word-break: break-all; 
-                color: var(--vscode-editor-foreground); 
+            .retry-attempts-header {
+                margin-bottom: 8px;
+                font-size: 12px;
+                color: var(--vscode-foreground);
+            }
+            .retry-attempt {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 4px 8px;
+                margin: 2px 0;
+                border-radius: 3px;
+                font-size: 11px;
+                font-family: var(--vscode-editor-font-family);
+            }
+            .retry-attempt.success {
+                background: rgba(0, 255, 0, 0.1);
+                border-left: 3px solid var(--vscode-terminal-ansiGreen);
+            }
+            .retry-attempt.failed {
+                background: rgba(255, 0, 0, 0.1);
+                border-left: 3px solid var(--vscode-terminal-ansiRed);
+            }
+            .attempt-icon {
+                font-size: 14px;
+                min-width: 16px;
+            }
+            .attempt-number {
+                font-weight: bold;
+                min-width: 70px;
+                color: var(--vscode-foreground);
+            }
+            .attempt-status {
+                flex: 1;
+                color: var(--vscode-foreground);
+            }
+            .attempt-time {
+                font-size: 10px;
+                color: var(--vscode-descriptionForeground);
+                font-family: monospace;
             }
         `;
     }

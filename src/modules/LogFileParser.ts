@@ -7,7 +7,8 @@ import {
     HttpFileRequest,
     HttpRequestResults,
     HttpRequestResult,
-    HttpTestResult
+    HttpTestResult,
+    RetryInfo
 } from './HttpRequestTypes';
 import { HttpFileParser } from './HttpFileParser';
 import { STATUS_PASSED, STATUS_FAILED, ERROR_HTTP_FAILED } from '../constants/httpResults';
@@ -38,13 +39,22 @@ export class LogFileParser {
             
             let connectionError: string | null = null;
             let foundHttpRequest = false;
+            let currentRetryInfo: Partial<RetryInfo> = {};
             
             const httpFileRequests = await HttpFileParser.parseHttpFileForNames(httpFilePath);
             this.outputChannel?.appendLine(`[LogFileParser] Expected ${httpFileRequests.length} requests from HTTP file`);
             
+            // Parse retry directives from HTTP file
+            const httpFileContent = await fs.readFile(httpFilePath, 'utf8');
+            const httpRetryDirectives = this.parseHttpFileRetryDirectives(httpFileContent);
+            this.outputChannel?.appendLine(`[LogFileParser] Found ${Object.keys(httpRetryDirectives).length} retry directives in HTTP file`);
+            
             // Log the expected requests from HTTP file for debugging
             httpFileRequests.forEach((req, index) => {
                 this.outputChannel?.appendLine(`[LogFileParser] HTTP File Request ${index}: ${req.method} ${req.url} (name: ${req.name})`);
+                if (req.name && httpRetryDirectives[req.name]) {
+                    this.outputChannel?.appendLine(`[LogFileParser] Retry directive for ${req.name}: ${JSON.stringify(httpRetryDirectives[req.name])}`);
+                }
             });
             
             // Track processed requests to avoid duplicates
@@ -86,7 +96,9 @@ export class LogFileParser {
                         pendingRequests,
                         httpFileRequests,
                         processedRequestCount,
-                        processedRequestCount
+                        processedRequestCount,
+                        currentRetryInfo,
+                        httpRetryDirectives
                     );
                     if (processed) {
                         processedRequestCount++;
@@ -103,6 +115,12 @@ export class LogFileParser {
                     this.processLogRequestEnd(line, pendingRequests, requests);
                 } else if (this.isLogConnectionErrorLine(line)) {
                     connectionError = this.extractLogConnectionError(line, lines, i);
+                } else if (this.isRetryStrategyLine(line)) {
+                    this.processRetryStrategyInfo(line, currentRetryInfo);
+                } else if (this.isRetryAttemptLine(line)) {
+                    this.processRetryAttempt(line, lines, i, currentRetryInfo);
+                    currentRetryInfo.actualAttempts = (currentRetryInfo.actualAttempts || 0) + 1;
+                    currentRetryInfo.wasRetried = true;
                 }
             }
 
@@ -195,7 +213,9 @@ export class LogFileParser {
         // Look for request body indicators in logs
         return line.includes('Request Body:') || 
                line.includes('Body:') ||
-               line.includes('Request content:');
+               line.includes('Request content:') ||
+               line.includes('Following HTTP request\'s body') ||
+               line.includes("Following HTTP request's body");
     }
 
     private static isLogResponseLine(line: string): boolean {
@@ -245,6 +265,7 @@ export class LogFileParser {
                line.includes('Body content:') ||
                line.includes('Response data:') ||
                line.includes('Body:') ||
+               line.includes('Response\'s body') ||
                // Sometimes body comes right after status without explicit marker
                (line.trim().startsWith('{') && line.includes('"')) ||
                (line.trim().startsWith('[') && line.includes('"'));
@@ -265,12 +286,83 @@ export class LogFileParser {
                line.includes('Network error');
     }
 
+    private static isRetryStrategyLine(line: string): boolean {
+        return line.includes('retry strategy') || 
+               line.includes('Maximal number of retry attempts') ||
+               line.includes('Backoff type') ||
+               line.includes('Using altered default retry strategy') ||
+               line.includes('Using default retry strategy');
+    }
+
+    private static isRetryAttemptLine(line: string): boolean {
+        // TeaPie retry patterns based on actual logs
+        return line.includes('Retrying request') ||
+               line.includes('Retry attempt') ||
+               line.includes('Request failed, retrying') ||
+               line.includes('Attempting retry') ||
+               (line.includes('retry') && line.includes('attempt')) ||
+               // Pattern for subsequent HTTP requests after failure
+               (line.includes('Sending HTTP request') && line.includes('(retry'));
+    }
+
+    private static processRetryAttempt(line: string, lines: string[], currentIndex: number, currentRetryInfo: Partial<RetryInfo>): void {
+        // Initialize attempts array if not exists
+        if (!currentRetryInfo.attempts) {
+            currentRetryInfo.attempts = [];
+        }
+
+        const attemptNumber = currentRetryInfo.attempts.length + 1;
+        
+        // Create a new retry attempt
+        const attempt: import('./HttpRequestTypes').RetryAttempt = {
+            attemptNumber,
+            success: false, // Will be updated when we find the response
+            timestamp: this.extractTimestamp(line)
+        };
+
+        // Look ahead for the response status of this retry attempt
+        for (let i = currentIndex + 1; i < Math.min(currentIndex + 10, lines.length); i++) {
+            const nextLine = lines[i];
+            
+            // Look for HTTP response status
+            const statusMatch = nextLine.match(/HTTP\/[\d.]+\s+(\d+)\s*(.*)/) || 
+                               nextLine.match(/Response:\s*(\d+)\s*(.*)/) ||
+                               nextLine.match(/Status:\s*(\d+)\s*(.*)/);
+            
+            if (statusMatch) {
+                attempt.statusCode = parseInt(statusMatch[1], 10);
+                attempt.statusText = statusMatch[2]?.trim() || '';
+                attempt.success = attempt.statusCode >= 200 && attempt.statusCode < 300;
+                break;
+            }
+            
+            // Look for error messages
+            if (nextLine.includes('error') || nextLine.includes('failed') || nextLine.includes('timeout')) {
+                attempt.errorMessage = nextLine.trim();
+                attempt.success = false;
+                break;
+            }
+        }
+
+        currentRetryInfo.attempts.push(attempt);
+        
+        LogFileParser.outputChannel?.appendLine(`[LogFileParser] Captured retry attempt ${attemptNumber}: status=${attempt.statusCode}, success=${attempt.success}`);
+    }
+
+    private static extractTimestamp(line: string): string | undefined {
+        // Try to extract timestamp from log line
+        const timestampMatch = line.match(/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/);
+        return timestampMatch ? timestampMatch[1] : undefined;
+    }
+
     private static processLogRequestStart(
         line: string,
         pendingRequests: Map<string, InternalRequest>,
         httpFileRequests: HttpFileRequest[],
         httpFileRequestIdx: number,
-        requestCounter: number
+        requestCounter: number,
+        currentRetryInfo: Partial<RetryInfo>,
+        httpRetryDirectives: { [requestName: string]: Partial<RetryInfo> }
     ): boolean {
         // Extract HTTP method and URL from log line
         const methodMatch = line.match(/(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+([^\s]+)/);
@@ -306,6 +398,48 @@ export class LogFileParser {
         // If we have more requests in log than in HTTP file, create a generic entry
         const requestName = httpFileRequest?.name || httpFileRequest?.title || `${method} ${url}`;
         
+        // Merge retry information from log and HTTP file directives
+        let finalRetryInfo: Partial<RetryInfo> = {};
+        
+        // Start with HTTP file directive if available
+        if (httpFileRequest?.name && httpRetryDirectives[httpFileRequest.name]) {
+            finalRetryInfo = { ...httpRetryDirectives[httpFileRequest.name] };
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Using HTTP file retry directive for ${httpFileRequest.name}: ${JSON.stringify(finalRetryInfo)}`);
+        }
+        
+        // Override/merge with log-based retry info (TeaPie's actual behavior)
+        if (Object.keys(currentRetryInfo).length > 0) {
+            const httpDirective = httpFileRequest?.name ? httpRetryDirectives[httpFileRequest.name] : null;
+            
+            // If log shows retry configuration (even if no retries occurred)
+            if (currentRetryInfo.maxAttempts) {
+                finalRetryInfo.maxAttempts = currentRetryInfo.maxAttempts;
+                finalRetryInfo.backoffType = currentRetryInfo.backoffType || finalRetryInfo.backoffType;
+                finalRetryInfo.strategyName = currentRetryInfo.strategyName || finalRetryInfo.strategyName;
+                finalRetryInfo.actualAttempts = currentRetryInfo.actualAttempts;
+                finalRetryInfo.wasRetried = currentRetryInfo.wasRetried;
+                
+                // If HTTP file had different configuration, note the match or mismatch
+                if (httpDirective?.maxAttempts) {
+                    if (httpDirective.maxAttempts === currentRetryInfo.maxAttempts) {
+                        finalRetryInfo.strategyName = `${currentRetryInfo.strategyName || 'Default'} (as configured)`;
+                    } else {
+                        finalRetryInfo.strategyName = `${currentRetryInfo.strategyName || 'Default'} (configured: ${httpDirective.maxAttempts}, used: ${currentRetryInfo.maxAttempts})`;
+                    }
+                }
+                
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] Merged retry info for ${httpFileRequest?.name}: log=${JSON.stringify(currentRetryInfo)}, final=${JSON.stringify(finalRetryInfo)}`);
+            } else {
+                // Normal case - merge without conflicts
+                finalRetryInfo = { ...finalRetryInfo, ...currentRetryInfo };
+            }
+        } else if (Object.keys(finalRetryInfo).length > 0) {
+            // HTTP file had retry directives but no retry info in log
+            // This means TeaPie might have ignored the directives
+            finalRetryInfo.strategyName = `${finalRetryInfo.strategyName || 'Configured'} (not detected in logs)`;
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] HTTP file had retry directives for ${httpFileRequest?.name} but TeaPie logs didn't show retry info`);
+        }
+        
         const request: InternalRequest = {
             method,
             url,
@@ -316,13 +450,11 @@ export class LogFileParser {
             responseHeaders: {},
             responseBody: '',
             duration: '0ms',
-            timeToFirstByte: undefined,
-            requestSize: undefined,
-            responseSize: undefined,
             uniqueKey: requestKey,
             title: httpFileRequest?.title || null,
             name: requestName,
-            templateUrl: httpFileRequest?.templateUrl || null
+            templateUrl: httpFileRequest?.templateUrl || null,
+            retryInfo: Object.keys(finalRetryInfo).length > 0 ? finalRetryInfo as RetryInfo : undefined
         };
 
         pendingRequests.set(requestKey, request);
@@ -466,9 +598,6 @@ export class LogFileParser {
         
         // Extract headers from the response body if it contains header information
         this.extractHeadersFromResponseBody(line, pendingRequests);
-        
-        // Extract size information
-        this.extractSizeInformation(line, pendingRequests);
         
         // Pattern 4: Status: 200, Code: 200, etc.
         if (!statusCode) {
@@ -730,11 +859,11 @@ export class LogFileParser {
                     StatusText: internalRequest.responseStatusText || 'OK',
                     Headers: internalRequest.responseHeaders,
                     Body: internalRequest.responseBody,
-                    Duration: internalRequest.duration || '0ms',
-                    Size: internalRequest.responseSize
+                    Duration: internalRequest.duration || '0ms'
                 } : undefined,
                 ErrorMessage: internalRequest.ErrorMessage,
-                Tests: testResults
+                Tests: testResults,
+                RetryInfo: internalRequest.retryInfo
             });
         });
 
@@ -792,23 +921,138 @@ export class LogFileParser {
         });
     }
 
-    private static extractSizeInformation(line: string, pendingRequests: Map<string, InternalRequest>): void {
-        const requests = Array.from(pendingRequests.values());
-        if (requests.length === 0) return;
+    private static processRetryStrategyInfo(line: string, currentRetryInfo: Partial<RetryInfo>): void {
+        if (line.includes('retry strategy with name')) {
+            const nameMatch = line.match(/retry strategy with name '([^']*)'/) || line.match(/retry strategy with name "([^"]*)"/);
+            if (nameMatch) {
+                currentRetryInfo.strategyName = nameMatch[1] || 'Default retry';
+            }
+        } else if (line.includes('Using altered default retry strategy')) {
+            // This indicates TeaPie used custom retry settings
+            currentRetryInfo.strategyName = 'Default (altered)';
+        } else if (line.includes('Using default retry strategy')) {
+            // This indicates TeaPie used unmodified default settings
+            currentRetryInfo.strategyName = 'Default retry';
+        } else if (line.includes('Maximal number of retry attempts')) {
+            const attemptsMatch = line.match(/Maximal number of retry attempts:\s*(\d+)/);
+            if (attemptsMatch) {
+                currentRetryInfo.maxAttempts = parseInt(attemptsMatch[1], 10);
+            }
+        } else if (line.includes('Backoff type')) {
+            const backoffMatch = line.match(/Backoff type:\s*'([^']+)'/);
+            if (backoffMatch) {
+                currentRetryInfo.backoffType = backoffMatch[1];
+            }
+        }
+    }
+
+    /**
+     * Parse retry directives from HTTP file content to detect intended retry configuration
+     */
+    private static parseHttpFileRetryDirectives(httpFileContent: string): { [requestName: string]: Partial<RetryInfo> } {
+        const directives: { [requestName: string]: Partial<RetryInfo> } = {};
+        const lines = httpFileContent.split('\n');
+        let currentRequestName = '';
         
-        const lastRequest = requests[requests.length - 1];
-        
-        // Extract Content-Length for request size
-        const contentLengthMatch = line.match(/"Content-Length":\s*"(\d+)"/);
-        if (contentLengthMatch) {
-            lastRequest.requestSize = parseInt(contentLengthMatch[1], 10);
-            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Extracted request size: ${lastRequest.requestSize} bytes`);
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            // Look for request names
+            const nameMatch = line.match(/^#\s*@name\s+(.+)$/);
+            if (nameMatch) {
+                currentRequestName = nameMatch[1].trim();
+                continue;
+            }
+            
+            // Look for retry directives
+            if (currentRequestName && line.startsWith('## RETRY-')) {
+                if (!directives[currentRequestName]) {
+                    directives[currentRequestName] = {};
+                }
+                
+                if (line.startsWith('## RETRY-STRATEGY:')) {
+                    const strategyMatch = line.match(/## RETRY-STRATEGY:\s*(.+)$/);
+                    if (strategyMatch) {
+                        directives[currentRequestName].strategyName = strategyMatch[1].trim();
+                    }
+                } else if (line.startsWith('## RETRY-MAX-ATTEMPTS:')) {
+                    const attemptsMatch = line.match(/## RETRY-MAX-ATTEMPTS:\s*(\d+)/);
+                    if (attemptsMatch) {
+                        directives[currentRequestName].maxAttempts = parseInt(attemptsMatch[1], 10);
+                    }
+                } else if (line.startsWith('## RETRY-BACKOFF-TYPE:')) {
+                    const backoffMatch = line.match(/## RETRY-BACKOFF-TYPE:\s*(.+)$/);
+                    if (backoffMatch) {
+                        directives[currentRequestName].backoffType = backoffMatch[1].trim();
+                    }
+                }
+            }
+            
+            // Reset on new request section
+            if (line.startsWith('###')) {
+                currentRequestName = '';
+            }
         }
         
-        // Extract response size from response body (rough estimate)
-        if (line.includes('Response\'s body') && lastRequest.responseBody) {
-            lastRequest.responseSize = new Blob([lastRequest.responseBody]).size;
-            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Estimated response size: ${lastRequest.responseSize} bytes`);
+        return directives;
+    }
+
+    /**
+     * For testing: inject mock retry data to demonstrate the retry UI
+     */
+    static injectMockRetryData(request: InternalRequest, scenario: 'multiple-failures' | 'connection-failures' | 'success-first'): void {
+        if (!request.retryInfo) {
+            request.retryInfo = {};
+        }
+
+        switch (scenario) {
+            case 'multiple-failures':
+                request.retryInfo = {
+                    strategyName: 'RetryWithBackoff',
+                    maxAttempts: 8,
+                    actualAttempts: 8,
+                    backoffType: 'Exponential',
+                    wasRetried: true,
+                    attempts: [
+                        { attemptNumber: 1, statusCode: 500, statusText: 'Internal Server Error', success: false, timestamp: '14:23:01' },
+                        { attemptNumber: 2, statusCode: 500, statusText: 'Internal Server Error', success: false, timestamp: '14:23:03' },
+                        { attemptNumber: 3, statusCode: 500, statusText: 'Internal Server Error', success: false, timestamp: '14:23:07' },
+                        { attemptNumber: 4, statusCode: 500, statusText: 'Internal Server Error', success: false, timestamp: '14:23:15' },
+                        { attemptNumber: 5, statusCode: 500, statusText: 'Internal Server Error', success: false, timestamp: '14:23:31' },
+                        { attemptNumber: 6, statusCode: 500, statusText: 'Internal Server Error', success: false, timestamp: '14:24:03' },
+                        { attemptNumber: 7, statusCode: 500, statusText: 'Internal Server Error', success: false, timestamp: '14:24:07' },
+                        { attemptNumber: 8, statusCode: 200, statusText: 'OK', success: true, timestamp: '14:24:15' }
+                    ]
+                };
+                break;
+
+            case 'connection-failures':
+                request.retryInfo = {
+                    strategyName: 'RetryWithBackoff',
+                    maxAttempts: 3,
+                    actualAttempts: 3,
+                    backoffType: 'Linear',
+                    wasRetried: true,
+                    attempts: [
+                        { attemptNumber: 1, errorMessage: 'Connection refused', success: false, timestamp: '14:25:01' },
+                        { attemptNumber: 2, errorMessage: 'Connection timeout', success: false, timestamp: '14:25:06' },
+                        { attemptNumber: 3, errorMessage: 'Connection refused', success: false, timestamp: '14:25:11' }
+                    ]
+                };
+                break;
+
+            case 'success-first':
+                request.retryInfo = {
+                    strategyName: 'RetryWithBackoff',
+                    maxAttempts: 5,
+                    actualAttempts: 1,
+                    backoffType: 'Exponential',
+                    wasRetried: false,
+                    attempts: [
+                        { attemptNumber: 1, statusCode: 200, statusText: 'OK', success: true, timestamp: '14:26:01' }
+                    ]
+                };
+                break;
         }
     }
 }
