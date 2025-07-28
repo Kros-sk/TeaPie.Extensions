@@ -68,26 +68,33 @@ export class LogFileParser {
                 // Skip empty lines
                 if (!line) continue;
 
-                // Stop processing if we've found all expected requests and they match
-                if (processedRequestCount >= maxRequests && maxRequests > 0) {
-                    break;
-                }
-
                 // Look for HTTP request start indicators in log
                 if (this.isLogRequestStartLine(line)) {
                     foundHttpRequest = true;
                     
-                    // Extract method and URL to check for duplicates
+                    // Extract method and URL to check for duplicates, but allow retries
                     const methodMatch = line.match(/(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+([^\s]+)/);
                     if (methodMatch) {
                         const requestId = `${methodMatch[1]}_${methodMatch[2]}`;
                         
-                        // Skip if we've already processed this exact request
-                        if (processedUrls.has(requestId)) {
-                            this.outputChannel?.appendLine(`[LogFileParser] Skipped duplicate request: ${requestId}`);
+                        // Check if we already have this exact request processed 
+                        const existingRequest = Array.from(pendingRequests.values()).find(req => 
+                            req.method === methodMatch[1] && req.url === methodMatch[2]
+                        );
+                        
+                        // If we already have this request in pending, it's likely a retry - skip creating a new one
+                        if (existingRequest) {
+                            this.outputChannel?.appendLine(`[LogFileParser] Skipped retry attempt for existing pending request: ${requestId}`);
                             continue;
                         }
                         
+                        // If we've reached the max number of unique requests, don't process more
+                        if (processedRequestCount >= maxRequests && maxRequests > 0) {
+                            this.outputChannel?.appendLine(`[LogFileParser] Reached max requests limit (${maxRequests}), skipping: ${requestId}`);
+                            continue;
+                        }
+                        
+                        // Track this URL pattern but allow processing
                         processedUrls.add(requestId);
                     }
                     
@@ -134,6 +141,7 @@ export class LogFileParser {
                 } else {
                     LogFileParser.outputChannel?.appendLine(`[LogFileParser] Pending request already has status: ${request.responseStatus} ${request.responseStatusText}`);
                 }
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] Moving request to completed - has response body: ${request.responseBody ? 'yes' : 'no'}, length: ${request.responseBody?.length || 0}`);
                 requests.push(request);
                 this.outputChannel?.appendLine(`[LogFileParser] Moved pending request to completed: ${key} with final status ${request.responseStatus}`);
             }
@@ -259,16 +267,18 @@ export class LogFileParser {
     }
 
     private static isLogResponseBodyLine(line: string): boolean {
-        // Look for response body indicators in logs - be more flexible
+        // Look for response body indicators in logs - be more specific
         return line.includes('Response Body:') || 
                line.includes('Response content:') ||
                line.includes('Body content:') ||
                line.includes('Response data:') ||
                line.includes('Body:') ||
                line.includes('Response\'s body') ||
-               // Sometimes body comes right after status without explicit marker
-               (line.trim().startsWith('{') && line.includes('"')) ||
-               (line.trim().startsWith('[') && line.includes('"'));
+               // Specific TeaPie pattern: "[VRB] Response's body (application/json):"
+               (line.includes('Response\'s body') && line.includes('(') && line.includes('):')) ||
+               // TeaPie also logs request body: "[VRB] Following HTTP request's body"
+               (line.includes('HTTP request\'s body') && line.includes('(') && line.includes('):'));
+               // Removed the JSON detection patterns that were causing overwrites
     }
 
     private static isLogRequestEndLine(line: string): boolean {
@@ -523,12 +533,18 @@ export class LogFileParser {
         // Extract request body from subsequent lines after body indicator
         const body = this.extractLogBody(lines, currentIndex);
         
-        // Find the most recent pending request to assign body to
+        // Find the most recent pending request that doesn't have a request body yet
         const requests = Array.from(pendingRequests.values());
-        if (requests.length > 0) {
-            const lastRequest = requests[requests.length - 1];
-            lastRequest.requestBody = body;
-            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Added request body to request`);
+        let targetRequest = requests.find(req => !req.requestBody || req.requestBody.length === 0);
+        
+        // If no request without body found, fall back to most recent request
+        if (!targetRequest && requests.length > 0) {
+            targetRequest = requests[requests.length - 1];
+        }
+        
+        if (targetRequest) {
+            targetRequest.requestBody = body;
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Added request body to request: ${targetRequest.method} ${targetRequest.url}`);
         }
     }
 
@@ -645,13 +661,19 @@ export class LogFileParser {
             return;
         }
         
-        // Find the most recent pending request to assign response to
+        // Find the most recent pending request that doesn't have a response status yet
         const requests = Array.from(pendingRequests.values());
-        if (requests.length > 0) {
-            const lastRequest = requests[requests.length - 1];
-            lastRequest.responseStatus = statusCode;
-            lastRequest.responseStatusText = statusText || this.getDefaultStatusText(statusCode);
-            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Added response status: ${statusCode} ${lastRequest.responseStatusText} to request ${lastRequest.name}`);
+        let targetRequest = requests.find(req => req.responseStatus === undefined);
+        
+        // If no request without status found, fall back to most recent request
+        if (!targetRequest && requests.length > 0) {
+            targetRequest = requests[requests.length - 1];
+        }
+        
+        if (targetRequest) {
+            targetRequest.responseStatus = statusCode;
+            targetRequest.responseStatusText = statusText || this.getDefaultStatusText(statusCode);
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Added response status: ${statusCode} ${targetRequest.responseStatusText} to request ${targetRequest.name}`);
         } else {
             LogFileParser.outputChannel?.appendLine(`[LogFileParser] No pending request found for response: ${statusCode} ${statusText}`);
         }
@@ -686,12 +708,31 @@ export class LogFileParser {
         // Extract response body from subsequent lines after body indicator
         const body = this.extractLogBody(lines, currentIndex);
         
-        // Find the most recent pending request to assign body to
+        // Find the most recent pending request that has a response status but no body yet
         const requests = Array.from(pendingRequests.values());
-        if (requests.length > 0) {
-            const lastRequest = requests[requests.length - 1];
-            lastRequest.responseBody = body;
-            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Added response body to request`);
+        LogFileParser.outputChannel?.appendLine(`[LogFileParser] Processing response body for line: ${line.substring(0, 100)}`);
+        LogFileParser.outputChannel?.appendLine(`[LogFileParser] Found ${requests.length} pending requests`);
+        
+        // Look for a request that has a response status but no body yet (most likely candidate)
+        let targetRequest = requests.find(req => req.responseStatus !== undefined && (!req.responseBody || req.responseBody.length === 0));
+        
+        // If no request with status found, fall back to most recent request
+        if (!targetRequest && requests.length > 0) {
+            targetRequest = requests[requests.length - 1];
+        }
+        
+        if (targetRequest) {
+            // Only set response body if it's not already set or if the new body is longer
+            if (!targetRequest.responseBody || targetRequest.responseBody.length === 0 || body.length > targetRequest.responseBody.length) {
+                targetRequest.responseBody = body;
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] ✅ Added response body to request: ${targetRequest.method} ${targetRequest.url}`);
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] Response body content (first 200 chars): ${body.substring(0, 200)}`);
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] Response body full length: ${body.length} characters`);
+            } else {
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] ⚠️ Skipped response body assignment (already has body of length ${targetRequest.responseBody.length})`);
+            }
+        } else {
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] ❌ No pending requests found for response body`);
         }
     }
 
@@ -749,6 +790,18 @@ export class LogFileParser {
 
     private static extractLogBody(lines: string[], startIndex: number): string {
         const bodyLines: string[] = [];
+        
+        // First check if the body is inline on the same line (after ':' at the end)
+        const startLine = lines[startIndex].trim();
+        if (startLine.includes('):') && startLine.split('):').length > 1) {
+            const inlineBody = startLine.split('):')[1].trim();
+            if (inlineBody && (inlineBody.startsWith('{') || inlineBody.startsWith('['))) {
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] Found inline body: ${inlineBody.substring(0, 100)}`);
+                return inlineBody;
+            }
+        }
+        
+        // Otherwise, extract from subsequent lines
         let i = startIndex + 1;
         
         while (i < lines.length) {
@@ -767,17 +820,23 @@ export class LogFileParser {
             i++;
         }
         
-        return bodyLines.join('\n').trim();
+        const extractedBody = bodyLines.join('\n').trim();
+        LogFileParser.outputChannel?.appendLine(`[LogFileParser] Extracted body from lines: ${extractedBody.substring(0, 100)}`);
+        return extractedBody;
     }
 
     private static hasLogTimestamp(line: string): boolean {
         // Check if line starts with timestamp pattern common in logs
-        // Example patterns: [2024-01-01 10:00:00], 2024-01-01T10:00:00, etc.
-        return /^\[?\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}/.test(line) ||
+        // TeaPie format: "2025-07-28 10:50:55.605 +02:00 [DBG]"
+        return /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+[+-]\d{2}:\d{2}\s+\[/.test(line) ||
+               /^\[?\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}/.test(line) ||
                /^\d{2}:\d{2}:\d{2}/.test(line) ||
                line.includes('trce:') || line.includes('dbug:') || 
                line.includes('info:') || line.includes('warn:') || 
-               line.includes('fail:') || line.includes('crit:');
+               line.includes('fail:') || line.includes('crit:') ||
+               // TeaPie log levels
+               line.includes('[VRB]') || line.includes('[DBG]') || 
+               line.includes('[INF]') || line.includes('[ERR]');
     }
 
     /**
@@ -842,6 +901,14 @@ export class LogFileParser {
             
             // Request is successful only if both HTTP response is successful AND all tests passed
             const requestSuccess = httpSuccess && allTestsPassed;
+            
+            // Debug: Log the response body state before creating HttpRequestResult
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Converting request ${index + 1}: ${internalRequest.method} ${internalRequest.url}`);
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Has response status: ${internalRequest.responseStatus ? 'yes' : 'no'}`);
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] Has response body: ${internalRequest.responseBody ? 'yes' : 'no'}, length: ${internalRequest.responseBody?.length || 0}`);
+            if (internalRequest.responseBody) {
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] Response body preview: ${internalRequest.responseBody.substring(0, 100)}`);
+            }
             
             requests.push({
                 Name: internalRequest.name || `Request ${index + 1}`,

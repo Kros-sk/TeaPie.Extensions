@@ -409,6 +409,10 @@ private static readonly disposables: vscode.Disposable[] = [];
                 </div>
             </div>` : '';
         
+        // Make response body visible by default if it exists
+        const bodyCollapseClass = body ? '' : 'collapsed';
+        const toggleIcon = body ? '▼' : '▶';
+        
         return `
             <div class="section">
                 <h4>Response</h4>
@@ -422,9 +426,9 @@ private static readonly disposables: vscode.Disposable[] = [];
                 <div class="body-container">
                     <div class="body-toggle" onclick="toggleSection('response-body-${idx}')">
                         <span>Response Body</span>
-                        <span class="toggle-icon">▶</span>
+                        <span class="toggle-icon">${toggleIcon}</span>
                     </div>
-                    <div class="body-content collapsed" id="response-body-${idx}">
+                    <div class="body-content ${bodyCollapseClass}" id="response-body-${idx}">
                         <div class="code-block">
                             <pre class="body json" id="response-${idx}">${body}</pre>
                             ${this.renderCopyButton(`response-${idx}`, true)}
