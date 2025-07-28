@@ -250,7 +250,7 @@ private static readonly disposables: vscode.Disposable[] = [];
                             <li class="test-item ${test.Passed ? 'test-passed' : 'test-failed'}">
                                 <span class="test-status">${test.Passed ? '✔️' : '❌'}</span>
                                 <span class="test-name">${this.escapeHtml(test.Name)}</span>
-                                ${test.Message ? `<span class="test-message">${this.escapeHtml(test.Message)}</span>` : ''}
+                                ${(typeof test.Message === 'string' && test.Message.trim() !== '') ? `<span class="test-message">${this.escapeHtml(test.Message)}</span>` : ''}
                             </li>`).join('')}
                     </ul>
                 </div>
@@ -459,7 +459,7 @@ private static readonly disposables: vscode.Disposable[] = [];
     private static getResultsContent(results: HttpRequestResults, fileUri: vscode.Uri): string {
         const fileName = path.basename(fileUri.fsPath);
         let requestsHtml = '';
-        let hasRequests = false;
+        let renderedRequests = 0;
         
         if (results.RequestGroups?.RequestGroup) {
             const { RequestGroup } = results.RequestGroups;
@@ -484,17 +484,17 @@ private static readonly disposables: vscode.Disposable[] = [];
                                             <li class="test-item ${test.Passed ? 'test-passed' : 'test-failed'}">
                                                 <span class="test-status">${test.Passed ? '✔️' : '❌'}</span>
                                                 <span class="test-name">${this.escapeHtml(test.Name)}</span>
-                                ${test.Message && `<span class="test-message">${this.escapeHtml(test.Message)}</span>`}
+                                ${(typeof test.Message === 'string' && test.Message.trim() !== '') ? `<span class="test-message">${this.escapeHtml(test.Message)}</span>` : ''}
                                             </li>
                                         `).join('')}
                                     </ul>
                                 </div>
                             </div>`;
+                        renderedRequests++;
                         return;
                     }
-                    
                     // Normal HTTP request processing
-                    if (request.Request || request.ErrorMessage) hasRequests = true;
+                    if (request.Request || request.ErrorMessage || (request.Tests && request.Tests.length > 0)) renderedRequests++;
                     const headerHtml = this.renderRequestHeader(request);
                     const requestHtml = this.renderRequestSection(request, idx);
                     const responseHtml = this.renderResponseSection(request, idx);
@@ -514,7 +514,7 @@ private static readonly disposables: vscode.Disposable[] = [];
         }
 
         let fallbackContent = '';
-        if (!hasRequests) {
+        if (renderedRequests === 0) {
             const hasErrors = results.RequestGroups?.RequestGroup?.some(group => 
                 group.Requests?.some(request => request.ErrorMessage)
             );

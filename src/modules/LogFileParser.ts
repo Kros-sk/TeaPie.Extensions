@@ -67,8 +67,16 @@ export class LogFileParser {
                 // Skip empty lines
                 if (!line) continue;
 
-                // Universal error detection: if line contains [ERR], 'Exception was thrown', or 'Reason: Application Error', set connectionError and break
-                if (line.includes('[ERR]') || line.toLowerCase().includes('exception was thrown') || line.includes('Reason: Application Error')) {
+                // Only treat [ERR] as a connection error if it matches known connection failure patterns
+                const isConnectionError = (
+                    line.includes('Connection refused') ||
+                    line.includes('Host not found') ||
+                    line.includes('Connection timeout') ||
+                    line.includes('Network error') ||
+                    line.toLowerCase().includes('exception was thrown') ||
+                    line.includes('Reason: Application Error')
+                );
+                if (isConnectionError) {
                     // Try to extract a detailed error message
                     let errorMsg = line;
                     // Look ahead for 'Details:' or next error lines
@@ -83,7 +91,7 @@ export class LogFileParser {
                         }
                     }
                     connectionError = errorMsg;
-                    this.outputChannel?.appendLine(`[LogFileParser] Detected error: ${errorMsg}`);
+                    this.outputChannel?.appendLine(`[LogFileParser] Detected connection error: ${errorMsg}`);
                     break;
                 }
 
