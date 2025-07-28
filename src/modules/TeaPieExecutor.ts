@@ -151,6 +151,10 @@ export class TeaPieExecutor {
         logResult: CliParseResult,
         testResultsFromXml: Map<string, HttpTestResult[]>
     ): HttpRequestResults {
+        // If a connection error is present, always show it as the main result
+        if (logResult.connectionError) {
+            return this.createFailedResult(filePath, logResult.connectionError);
+        }
         return LogFileParser.buildHttpRequestResults(
             fileName,
             filePath,

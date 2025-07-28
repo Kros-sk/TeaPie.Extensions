@@ -64,9 +64,28 @@ export class LogFileParser {
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
-                
                 // Skip empty lines
                 if (!line) continue;
+
+                // Universal error detection: if line contains [ERR], 'Exception was thrown', or 'Reason: Application Error', set connectionError and break
+                if (line.includes('[ERR]') || line.toLowerCase().includes('exception was thrown') || line.includes('Reason: Application Error')) {
+                    // Try to extract a detailed error message
+                    let errorMsg = line;
+                    // Look ahead for 'Details:' or next error lines
+                    for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+                        const nextLine = lines[j].trim();
+                        if (nextLine.startsWith('Details:')) {
+                            errorMsg += '\n' + nextLine;
+                        } else if (nextLine.startsWith('Reason:')) {
+                            errorMsg += '\n' + nextLine;
+                        } else if (nextLine.includes('[ERR]')) {
+                            errorMsg += '\n' + nextLine;
+                        }
+                    }
+                    connectionError = errorMsg;
+                    this.outputChannel?.appendLine(`[LogFileParser] Detected error: ${errorMsg}`);
+                    break;
+                }
 
                 // Look for HTTP request start indicators in log
                 if (this.isLogRequestStartLine(line)) {
