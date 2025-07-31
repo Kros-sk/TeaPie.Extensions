@@ -345,6 +345,7 @@ private static readonly disposables: vscode.Disposable[] = [];
             <div class="retry-details">
                 ${strategyName ? `<div class="retry-detail"><strong>Strategy:</strong> ${this.escapeHtml(strategyName)}</div>` : ''}
                 <div class="retry-detail"><strong>Total Attempts:</strong> ${shownActualAttempts} (${initialText})</div>
+                ${typeof request.RetryInfo.maxAttempts !== 'undefined' ? `<div class="retry-detail"><strong>Max Attempts:</strong> ${this.escapeHtml(request.RetryInfo.maxAttempts.toString())}</div>` : ''}
                 ${backoffType ? `<div class="retry-detail"><strong>Backoff Type:</strong> ${this.escapeHtml(backoffType)}</div>` : ''}
                 ${this.renderRetryAttempts(request.RetryInfo)}
             </div>`;
