@@ -316,33 +316,35 @@ private static readonly disposables: vscode.Disposable[] = [];
     }
 
     private static renderRetrySection(request: HttpRequestResult, idx: number): string {
-        if (!request.RetryInfo || (!request.RetryInfo.wasRetried && !request.RetryInfo.maxAttempts)) {
+        if (!request.RetryInfo) {
             return '';
         }
 
-        const { strategyName, maxAttempts, actualAttempts, backoffType, wasRetried } = request.RetryInfo;
-        
+        const { strategyName, backoffType, attempts } = request.RetryInfo;
+        // Only count actual attempts performed: initial + retries
+        const performedRetries = attempts ? attempts.length : 0;
+        const shownActualAttempts = performedRetries + 1;
+        const initialText = performedRetries > 0 ? `1 initial + ${performedRetries} retr${performedRetries === 1 ? 'y' : 'ies'}` : '1 initial';
+
         let retryStatusHtml = '';
-        if (wasRetried) {
-            const attemptsText = actualAttempts ? `${actualAttempts}/${maxAttempts || 'unknown'}` : 'unknown';
+        if (performedRetries > 0) {
             retryStatusHtml = `
                 <div class="retry-status retried">
                     <span class="retry-icon">🔄</span>
-                    <span class="retry-text">Request was retried (${attemptsText} attempts)</span>
+                    <span class="retry-text">Request was retried (${initialText})</span>
                 </div>`;
-        } else if (maxAttempts && maxAttempts > 1) {
+        } else {
             retryStatusHtml = `
-                <div class="retry-status configured">
-                    <span class="retry-icon">⚡</span>
-                    <span class="retry-text">Retry configured (max ${maxAttempts} attempts)</span>
+                <div class="retry-status single">
+                    <span class="retry-icon">✔️</span>
+                    <span class="retry-text">Request sent (1 attempt)</span>
                 </div>`;
         }
 
         const retryDetailsHtml = `
             <div class="retry-details">
                 ${strategyName ? `<div class="retry-detail"><strong>Strategy:</strong> ${this.escapeHtml(strategyName)}</div>` : ''}
-                ${maxAttempts ? `<div class="retry-detail"><strong>Max Attempts:</strong> ${maxAttempts}</div>` : ''}
-                ${actualAttempts ? `<div class="retry-detail"><strong>Actual Attempts:</strong> ${actualAttempts}</div>` : ''}
+                <div class="retry-detail"><strong>Total Attempts:</strong> ${shownActualAttempts} (${initialText})</div>
                 ${backoffType ? `<div class="retry-detail"><strong>Backoff Type:</strong> ${this.escapeHtml(backoffType)}</div>` : ''}
                 ${this.renderRetryAttempts(request.RetryInfo)}
             </div>`;

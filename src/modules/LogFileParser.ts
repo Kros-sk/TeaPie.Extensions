@@ -40,6 +40,7 @@ export class LogFileParser {
             let connectionError: string | null = null;
             let foundHttpRequest = false;
             let currentRetryInfo: Partial<RetryInfo> = {};
+            let lastRequestKey: string | null = null;
             
             const httpFileRequests = await HttpFileParser.parseHttpFileForNames(httpFilePath);
             this.outputChannel?.appendLine(`[LogFileParser] Expected ${httpFileRequests.length} requests from HTTP file`);
@@ -152,9 +153,22 @@ export class LogFileParser {
                 } else if (this.isRetryStrategyLine(line)) {
                     this.processRetryStrategyInfo(line, currentRetryInfo);
                 } else if (this.isRetryAttemptLine(line)) {
-                    this.processRetryAttempt(line, lines, i, currentRetryInfo);
-                    currentRetryInfo.actualAttempts = (currentRetryInfo.actualAttempts || 0) + 1;
-                    currentRetryInfo.wasRetried = true;
+                    // Find the most recent pending request
+                    const requestsArr = Array.from(pendingRequests.values());
+                    let targetRequest = requestsArr.length > 0 ? requestsArr[requestsArr.length - 1] : undefined;
+                    if (targetRequest) {
+                        if (!targetRequest.retryInfo) {
+                            targetRequest.retryInfo = { attempts: [], actualAttempts: 1 };
+                        }
+                        this.processRetryAttempt(line, lines, i, targetRequest.retryInfo);
+                        targetRequest.retryInfo.actualAttempts = (targetRequest.retryInfo.actualAttempts || 1) + 1;
+                        targetRequest.retryInfo.wasRetried = true;
+                    } else {
+                        // Fallback to global
+                        this.processRetryAttempt(line, lines, i, currentRetryInfo);
+                        currentRetryInfo.actualAttempts = (currentRetryInfo.actualAttempts || 1) + 1;
+                        currentRetryInfo.wasRetried = true;
+                    }
                 }
             }
 
@@ -167,6 +181,16 @@ export class LogFileParser {
                     request.responseStatusText = 'OK';
                 } else {
                     LogFileParser.outputChannel?.appendLine(`[LogFileParser] Pending request already has status: ${request.responseStatus} ${request.responseStatusText}`);
+                }
+                // Ensure retryInfo is set and actualAttempts is correct
+                if (!request.retryInfo) {
+                    request.retryInfo = { actualAttempts: currentRetryInfo.actualAttempts || 1 };
+                }
+                // If attempts array exists, use its length
+                if (request.retryInfo.attempts && request.retryInfo.attempts.length > 0) {
+                    request.retryInfo.actualAttempts = request.retryInfo.attempts.length + 1; // initial + retries
+                } else if (typeof request.retryInfo.actualAttempts !== 'number' || request.retryInfo.actualAttempts < 1) {
+                    request.retryInfo.actualAttempts = 1;
                 }
                 LogFileParser.outputChannel?.appendLine(`[LogFileParser] Moving request to completed - has response body: ${request.responseBody ? 'yes' : 'no'}, length: ${request.responseBody?.length || 0}`);
                 requests.push(request);
@@ -333,11 +357,11 @@ export class LogFileParser {
 
     private static isRetryAttemptLine(line: string): boolean {
         // TeaPie retry patterns based on actual logs
-        return line.includes('Retrying request') ||
-               line.includes('Retry attempt') ||
+        // Primary pattern: "[DBG] Retry attempt number 1."
+        return line.includes('Retry attempt number') ||
+               line.includes('Retrying request') ||
                line.includes('Request failed, retrying') ||
                line.includes('Attempting retry') ||
-               (line.includes('retry') && line.includes('attempt')) ||
                // Pattern for subsequent HTTP requests after failure
                (line.includes('Sending HTTP request') && line.includes('(retry'));
     }
@@ -349,41 +373,77 @@ export class LogFileParser {
         }
 
         const attemptNumber = currentRetryInfo.attempts.length + 1;
-        
-        // Create a new retry attempt
         const attempt: import('./HttpRequestTypes').RetryAttempt = {
             attemptNumber,
-            success: false, // Will be updated when we find the response
+            success: false, // Will be updated below
             timestamp: this.extractTimestamp(line)
         };
 
         // Look ahead for the response status of this retry attempt
-        for (let i = currentIndex + 1; i < Math.min(currentIndex + 10, lines.length); i++) {
+        let foundStatus = false;
+        LogFileParser.outputChannel?.appendLine(`[LogFileParser] Processing retry attempt ${attemptNumber} from line: ${line.trim()}`);
+        
+        for (let i = currentIndex + 1; i < Math.min(currentIndex + 50, lines.length); i++) {
             const nextLine = lines[i];
             
-            // Look for HTTP response status
-            const statusMatch = nextLine.match(/HTTP\/[\d.]+\s+(\d+)\s*(.*)/) || 
-                               nextLine.match(/Response:\s*(\d+)\s*(.*)/) ||
-                               nextLine.match(/Status:\s*(\d+)\s*(.*)/);
-            
-            if (statusMatch) {
-                attempt.statusCode = parseInt(statusMatch[1], 10);
-                attempt.statusText = statusMatch[2]?.trim() || '';
-                attempt.success = attempt.statusCode >= 200 && attempt.statusCode < 300;
+            // Look for TeaPie-specific HTTP response patterns
+            // Pattern 1: "Received HTTP response headers after 122.684ms - 200"
+            const responseHeaderMatch = nextLine.match(/Received HTTP response headers after [^-]+ - (\d+)/);
+            if (responseHeaderMatch) {
+                attempt.statusCode = parseInt(responseHeaderMatch[1], 10);
+                attempt.success = attempt.statusCode >= 200 && attempt.statusCode < 400;
+                foundStatus = true;
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] ✅ Found status via response headers: ${attempt.statusCode}, success: ${attempt.success}`);
                 break;
             }
             
-            // Look for error messages
-            if (nextLine.includes('error') || nextLine.includes('failed') || nextLine.includes('timeout')) {
+            // Pattern 2: "HTTP Response 200 (OK) was received from..."
+            const httpResponseMatch = nextLine.match(/HTTP Response (\d+) \(([^)]+)\) was received/);
+            if (httpResponseMatch) {
+                attempt.statusCode = parseInt(httpResponseMatch[1], 10);
+                attempt.statusText = httpResponseMatch[2];
+                attempt.success = attempt.statusCode >= 200 && attempt.statusCode < 400;
+                foundStatus = true;
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] ✅ Found status via HTTP Response: ${attempt.statusCode} (${attempt.statusText}), success: ${attempt.success}`);
+                break;
+            }
+            
+            // Pattern 3: "End processing HTTP request after 110.8695ms - 200"
+            const endProcessingMatch = nextLine.match(/End processing HTTP request after [^-]+ - (\d+)/);
+            if (endProcessingMatch) {
+                attempt.statusCode = parseInt(endProcessingMatch[1], 10);
+                attempt.success = attempt.statusCode >= 200 && attempt.statusCode < 400;
+                foundStatus = true;
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] ✅ Found status via end processing: ${attempt.statusCode}, success: ${attempt.success}`);
+                break;
+            }
+            
+            // Look for actual error messages (not test failures)
+            if ((nextLine.includes('[ERR]') || nextLine.includes('error') || nextLine.includes('failed') || nextLine.includes('timeout')) 
+                && !nextLine.includes('Test') && !nextLine.includes('Assert')) {
                 attempt.errorMessage = nextLine.trim();
                 attempt.success = false;
+                foundStatus = true;
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] ❌ Found error: ${attempt.errorMessage}`);
+                break;
+            }
+            
+            // Stop looking if we hit another retry attempt, but NOT if we hit "Start processing HTTP request" 
+            // since that's part of the current retry attempt
+            if (nextLine.includes('Retry attempt number') && !nextLine.includes(`Retry attempt number ${attemptNumber}`)) {
+                LogFileParser.outputChannel?.appendLine(`[LogFileParser] Stopping search at next retry attempt: ${nextLine.trim().substring(0, 100)}`);
                 break;
             }
         }
 
+        // If no status found, default to failed
+        if (!foundStatus) {
+            attempt.success = false;
+            LogFileParser.outputChannel?.appendLine(`[LogFileParser] ❌ No status found for retry attempt ${attemptNumber}, defaulting to failed`);
+        }
+
         currentRetryInfo.attempts.push(attempt);
-        
-        LogFileParser.outputChannel?.appendLine(`[LogFileParser] Captured retry attempt ${attemptNumber}: status=${attempt.statusCode}, success=${attempt.success}`);
+        LogFileParser.outputChannel?.appendLine(`[LogFileParser] Final retry attempt ${attemptNumber}: status=${attempt.statusCode}, success=${attempt.success}, timestamp=${attempt.timestamp}`);
     }
 
     private static extractTimestamp(line: string): string | undefined {
