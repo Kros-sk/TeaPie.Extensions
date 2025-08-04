@@ -81,24 +81,33 @@ export class TeaPieExecutor {
             
             this.outputChannel?.appendLine(`[TeaPieExecutor] TeaPie execution failed: ${execError.message}`);
             this.outputChannel?.appendLine(`[TeaPieExecutor] Exit code: ${execError.code}`);
+            this.outputChannel?.appendLine(`[TeaPieExecutor] stdout: ${execError.stdout || 'none'}`);
+            this.outputChannel?.appendLine(`[TeaPieExecutor] stderr: ${execError.stderr || 'none'}`);
             
-            // Try to extract meaningful error from TeaPie stdout/stderr first
+            // Strategy: Try to recover as much information as possible
             let meaningfulError = '';
             if (execError.stdout || execError.stderr) {
                 meaningfulError = this.extractTeaPieError(execError.stdout || '', execError.stderr || '');
             }
             
-            // If we couldn't extract a meaningful error, fall back to the raw message
             if (!meaningfulError) {
                 meaningfulError = execError.message || String(error);
             }
             
             // Even when TeaPie fails with non-zero exit code, it might still generate useful results
             // This happens especially with test failures (e.g., TEST-SUCCESSFUL-STATUS: False when request succeeds)
-            // First, try to parse the output and XML reports
             if (execError.stdout) {
                 try {
-                    await XmlTestParser.waitForXmlReportUpdate(reportPath, beforeTimestamp);
+                    // Add timeout to XML wait to prevent indefinite hanging
+                    const xmlWaitPromise = XmlTestParser.waitForXmlReportUpdate(reportPath, beforeTimestamp);
+                    const timeoutPromise = new Promise<void>((_, reject) => 
+                        setTimeout(() => reject(new Error('XML report wait timeout')), 5000)
+                    );
+                    
+                    await Promise.race([xmlWaitPromise, timeoutPromise]).catch(waitError => {
+                        this.outputChannel?.appendLine(`[TeaPieExecutor] XML wait failed or timed out: ${waitError}`);
+                        // Continue anyway - file might already exist
+                    });
                     
                     const result = await this.parseOutput(execError.stdout, filePath, workspaceFolder.uri.fsPath, logPath);
                     if (result.RequestGroups?.RequestGroup?.[0]?.Requests?.length) {
@@ -107,12 +116,14 @@ export class TeaPieExecutor {
                     }
                 } catch (parseError) {
                     this.outputChannel?.appendLine(`[TeaPieExecutor] Failed to parse results from failed execution: ${parseError}`);
+                    // Don't swallow this error - it's important context
+                    meaningfulError += `\n\nAdditional parsing error: ${parseError}`;
                 }
             }
             
             // If we can't parse useful results, then treat it as a true execution failure
             this.outputChannel?.appendLine(`[TeaPieExecutor] No valid results found, treating as execution failure`);
-            return this.createFailedResult(filePath, this.mapConnectionError(meaningfulError));
+            throw new Error(this.mapConnectionError(meaningfulError));
         }
     }
 

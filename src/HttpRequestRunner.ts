@@ -1,5 +1,4 @@
 import * as path from 'path';
-import * as fs from 'fs/promises';
 import * as vscode from 'vscode';
 import { 
     STATUS_PASSED,
@@ -12,7 +11,6 @@ import {
     HttpRequestResult, 
     HttpTestResult 
 } from './modules/HttpRequestTypes';
-import { HttpFileParser } from './modules/HttpFileParser';
 import { TeaPieExecutor } from './modules/TeaPieExecutor';
 import { 
     CONTENT_PATTERNS
@@ -24,8 +22,7 @@ export class HttpRequestRunner {
     private static lastRequestId = 0;
     private static panelColumn: vscode.ViewColumn | undefined;
     private static lastHttpUri: vscode.Uri | undefined;
-    private static isRunning = false;
-private static readonly disposables: vscode.Disposable[] = [];
+    private static readonly disposables: vscode.Disposable[] = [];
 
     public static setOutputChannel(channel: vscode.OutputChannel) {
         this.outputChannel = channel;
@@ -33,13 +30,29 @@ private static readonly disposables: vscode.Disposable[] = [];
     }
 
     public static dispose() {
-        this.disposables.forEach(d => d.dispose());
+        // Dispose all tracked disposables
+        this.disposables.forEach(d => {
+            try {
+                d.dispose();
+            } catch (error) {
+                this.outputChannel?.appendLine(`Warning: Failed to dispose resource: ${error}`);
+            }
+        });
         this.disposables.length = 0;
+        
+        // Clean up panel
         if (this.currentPanel) {
             this.currentPanel.dispose();
             this.currentPanel = undefined;
         }
+        
+        // Reset state
+        this.panelColumn = undefined;
+        this.lastHttpUri = undefined;
+        this.lastRequestId = 0;
     }
+
+    private static currentExecution: Promise<void> | null = null;
 
     /**
      * Runs HTTP requests from the specified file and displays results in a webview panel.
@@ -47,8 +60,20 @@ private static readonly disposables: vscode.Disposable[] = [];
      * @param forceColumn - Optional column to force the webview to appear in
      */
     public static async runHttpFile(uri: vscode.Uri, forceColumn?: vscode.ViewColumn): Promise<void> {
-        if (this.isRunning) return; // Prevent concurrent runs
-        this.isRunning = true;
+        // Prevent concurrent executions by chaining promises
+        if (this.currentExecution) {
+            await this.currentExecution;
+        }
+
+        this.currentExecution = this._runHttpFileInternal(uri, forceColumn);
+        try {
+            await this.currentExecution;
+        } finally {
+            this.currentExecution = null;
+        }
+    }
+
+    private static async _runHttpFileInternal(uri: vscode.Uri, forceColumn?: vscode.ViewColumn): Promise<void> {
         // If running from a different file, dispose the old panel to force a new split
         if (this.currentPanel && this.lastHttpUri && this.lastHttpUri.toString() !== uri.toString()) {
             this.currentPanel.dispose();
@@ -115,7 +140,7 @@ private static readonly disposables: vscode.Disposable[] = [];
             }
             vscode.window.showErrorMessage(errorMessage);
         } finally {
-            this.isRunning = false;
+            // Execution completed
         }
     }
 
@@ -123,30 +148,11 @@ private static readonly disposables: vscode.Disposable[] = [];
         return TeaPieExecutor.executeTeaPie(filePath);
     }
 
-    private static createFailedResult(filePath: string, errorMessage: string): HttpRequestResults {
-        return {
-            RequestGroups: {
-                RequestGroup: [{
-                    Name: path.basename(filePath, path.extname(filePath)),
-                    FilePath: filePath,
-                    Requests: [{
-                        Name: ERROR_HTTP_FAILED,
-                        Status: STATUS_FAILED,
-                        Duration: '0ms',
-                        ErrorMessage: errorMessage
-                    }],
-                    Status: STATUS_FAILED,
-                    Duration: '0s'
-                }]
-            }
-        };
-    }
-
     private static setupRetryHandler(uri: vscode.Uri) {
         if (!this.currentPanel) return;
         
         const messageDisposable = this.currentPanel.webview.onDidReceiveMessage(message => {
-            if (message?.command === 'retry' && this.lastHttpUri && !this.isRunning) {
+            if (message?.command === 'retry' && this.lastHttpUri) {
                             // Always use the stored split column for retry
                 this.runHttpFile(this.lastHttpUri, this.panelColumn);
             }
@@ -371,15 +377,25 @@ private static readonly disposables: vscode.Disposable[] = [];
         const attemptsHtml = retryInfo.attempts.map((attempt, index) => {
             const statusIcon = attempt.success ? '✅' : '❌';
             const statusClass = attempt.success ? 'success' : 'failed';
-            const statusText = attempt.statusCode ? 
-                `${attempt.statusCode} ${attempt.statusText || ''}` : 
-                (attempt.errorMessage || 'Failed');
+            
+            // Create styled status block for retry attempts
+            let statusBlock = '';
+            if (attempt.statusCode) {
+                const statusCodeClass = attempt.statusCode >= 200 && attempt.statusCode < 300 ? 'success' : 'failed';
+                statusBlock = `<span class="status-badge ${statusCodeClass}">${attempt.statusCode}</span>`;
+                if (attempt.statusText) {
+                    statusBlock += ` ${this.escapeHtml(attempt.statusText)}`;
+                }
+            } else {
+                const errorText = attempt.errorMessage || 'Failed';
+                statusBlock = `<span class="status-badge failed">${this.escapeHtml(errorText)}</span>`;
+            }
             
             return `
                 <div class="retry-attempt ${statusClass}">
                     <span class="attempt-icon">${statusIcon}</span>
                     <span class="attempt-number">Attempt ${attempt.attemptNumber}</span>
-                    <span class="attempt-status">${this.escapeHtml(statusText)}</span>
+                    <span class="attempt-status">${statusBlock}</span>
                     ${attempt.timestamp ? `<span class="attempt-time">${attempt.timestamp}</span>` : ''}
                 </div>`;
         }).join('');
@@ -591,82 +607,367 @@ private static readonly disposables: vscode.Disposable[] = [];
 
     private static getStyles(): string {
         return `
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
-            .header { margin-bottom: 30px; padding-bottom: 15px; border-bottom: 1px solid var(--vscode-panel-border); display: flex; justify-content: space-between; align-items: center; }
-            .header h1 { margin: 0; font-size: 24px; }
-            .filename { font-style: italic; color: var(--vscode-textLink-foreground); font-family: monospace; }
-            .retry-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 500; }
-            .retry-btn:hover { background: var(--vscode-button-hoverBackground); }
-            .loading-container { text-align: center; padding: 60px 20px; }
-            .spinner { width: 40px; height: 40px; border: 4px solid var(--vscode-panel-border); border-top: 4px solid var(--vscode-button-background); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
-            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-            .loading-text { font-size: 16px; color: var(--vscode-descriptionForeground); }
-            .error-container { padding: 30px; text-align: center; }
-            .error-icon { font-size: 48px; margin-bottom: 20px; }
-            .error-title { font-size: 20px; color: var(--vscode-errorForeground); margin-bottom: 15px; font-weight: bold; }
-            .error-message { background: var(--vscode-textCodeBlock-background); padding: 15px; border-radius: 6px; border-left: 4px solid var(--vscode-errorForeground); font-family: monospace; text-align: left; white-space: pre-wrap; }
-            .request-item { margin-bottom: 30px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; overflow: hidden; }
-            .request-header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: var(--vscode-editor-inactiveSelectionBackground); border-bottom: 1px solid var(--vscode-panel-border); }
-            .request-header h3 { margin: 0; font-size: 16px; }
-            .status { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
-            .status.passed { background: var(--vscode-testing-iconPassed); color: var(--vscode-button-foreground); }
-            .status.failed { background: var(--vscode-testing-iconFailed); color: var(--vscode-button-foreground); }
-            .request-content { padding: 20px; }
-            .section { margin-bottom: 20px; }
-            .section h4 { margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: var(--vscode-descriptionForeground); text-transform: uppercase; }
-            .method-url { display: flex; align-items: center; gap: 15px; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 6px; }
-            .method { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; min-width: 50px; text-align: center; color: var(--vscode-button-foreground); }
-            .method-get { background: var(--vscode-terminal-ansiGreen); } .method-post { background: var(--vscode-terminal-ansiYellow); } .method-put { background: var(--vscode-terminal-ansiBlue); } .method-delete { background: var(--vscode-terminal-ansiRed); }
-            .url { font-family: monospace; font-weight: 500; word-break: break-all; flex: 1; }
-            .status-line { display: flex; align-items: center; gap: 15px; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 6px; }
-            .status-code { padding: 4px 8px; border-radius: 4px; font-weight: bold; min-width: 40px; text-align: center; color: var(--vscode-button-foreground); }
-            .status-success { background: var(--vscode-terminal-ansiGreen); } .status-error { background: var(--vscode-terminal-ansiRed); }
-            .status-text { font-weight: 500; flex: 1; }
-            .duration { font-size: 12px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); padding: 2px 6px; border-radius: 3px; }
-            .body-container { margin-top: 10px; }
-            .code-block { position: relative; }
-            .copy-btn { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; font-size: 11px; }
-            .copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
-            .inline-copy-btn { position: absolute; top: 8px; right: 8px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-            .inline-copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
-            pre.body { background: var(--vscode-textCodeBlock-background); padding: 15px; border-radius: 6px; overflow-x: auto; font-family: monospace; font-size: 13px; margin: 0; white-space: pre-wrap; border: 1px solid var(--vscode-panel-border); }
-            pre.body.json { color: var(--vscode-editor-foreground); }
-            .json-key { color: var(--vscode-debugTokenExpression-name) !important; font-weight: 500; }
-            .json-string { color: var(--vscode-debugTokenExpression-string) !important; }
-            .json-number { color: var(--vscode-debugTokenExpression-number) !important; }
-            .json-boolean { color: var(--vscode-debugTokenExpression-boolean) !important; font-weight: 500; }
-            .json-null { color: var(--vscode-debugTokenExpression-value) !important; font-weight: 500; font-style: italic; }
-            .error-message { color: var(--vscode-errorForeground); }
-            .error-info { padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 6px; color: var(--vscode-descriptionForeground); font-style: italic; }
-            .no-results { text-align: center; padding: 60px 20px; color: var(--vscode-descriptionForeground); }
-            .toggle-url-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px; font-weight: 500; }
-            .toggle-url-btn:hover { background: var(--vscode-button-hoverBackground); }
-            .test-section { margin-top: 18px; }
-            .test-section h4 { margin-bottom: 8px; }
-            .test-summary { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-            .test-passed-summary { color: var(--vscode-testing-iconPassed); }
-            .test-failed-summary { color: var(--vscode-testing-iconFailed); }
-            .test-list { list-style: none; padding: 0; margin: 0; }
-            .test-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; }
-            .test-passed { color: var(--vscode-testing-iconPassed); }
-            .test-failed { color: var(--vscode-testing-iconFailed); font-weight: bold; }
-            .test-status { font-size: 16px; margin-right: 4px; }
-            .test-name { font-family: monospace; font-weight: 500; }
-            .test-message { margin-left: 8px; color: var(--vscode-descriptionForeground); font-style: italic; }
+            body { 
+                font-family: var(--vscode-font-family); 
+                margin: 0; 
+                padding: var(--vscode-editor-font-size); 
+                color: var(--vscode-foreground); 
+                background: var(--vscode-editor-background); 
+                font-size: var(--vscode-editor-font-size);
+                line-height: var(--vscode-editor-line-height);
+            }
+            .header { 
+                margin-bottom: 2em; 
+                padding-bottom: 1em; 
+                border-bottom: 1px solid var(--vscode-panel-border); 
+                display: flex; 
+                justify-content: space-between; 
+                align-items: center; 
+            }
+            .header h1 { 
+                margin: 0; 
+                font-size: 1.5em; 
+                font-weight: var(--vscode-font-weight);
+            }
+            .filename { 
+                font-style: italic; 
+                color: var(--vscode-textLink-foreground); 
+                font-family: var(--vscode-editor-font-family); 
+                font-weight: bold;
+            }
+            .retry-btn { 
+                background: var(--vscode-button-background); 
+                color: var(--vscode-button-foreground); 
+                border: none; 
+                border-radius: 0.25em; 
+                padding: 0.5em 1em; 
+                cursor: pointer; 
+                font-size: 1em; 
+                font-weight: 500; 
+                font-family: var(--vscode-font-family);
+            }
+            .retry-btn:hover { 
+                background: var(--vscode-button-hoverBackground); 
+            }
+            .loading-container { 
+                text-align: center; 
+                padding: 3em 1em; 
+            }
+            .spinner { 
+                width: 2.5em; 
+                height: 2.5em; 
+                border: 0.25em solid var(--vscode-panel-border); 
+                border-top: 0.25em solid var(--vscode-button-background); 
+                border-radius: 50%; 
+                animation: spin 1s linear infinite; 
+                margin: 0 auto 1em; 
+            }
+            @keyframes spin { 
+                0% { transform: rotate(0deg); } 
+                100% { transform: rotate(360deg); } 
+            }
+            .loading-text { 
+                font-size: 1em; 
+                color: var(--vscode-descriptionForeground); 
+            }
+            .error-container { 
+                padding: 2em; 
+                text-align: center; 
+            }
+            .error-icon { 
+                font-size: 3em; 
+                margin-bottom: 1em; 
+            }
+            .error-title { 
+                font-size: 1.25em; 
+                color: var(--vscode-errorForeground); 
+                margin-bottom: 1em; 
+                font-weight: bold; 
+            }
+            .error-message { 
+                background: var(--vscode-textCodeBlock-background); 
+                padding: 1em; 
+                border-radius: 0.375em; 
+                border-left: 0.25em solid var(--vscode-errorForeground); 
+                font-family: var(--vscode-editor-font-family); 
+                text-align: left; 
+                white-space: pre-wrap; 
+            }
+            .request-item { 
+                margin-bottom: 2em; 
+                border: 1px solid var(--vscode-panel-border); 
+                border-radius: 0.5em; 
+                overflow: hidden; 
+            }
+            .request-header { 
+                display: flex; 
+                justify-content: space-between; 
+                align-items: center; 
+                padding: 1em 1.25em; 
+                background: var(--vscode-editor-inactiveSelectionBackground); 
+                border-bottom: 1px solid var(--vscode-panel-border); 
+            }
+            .request-header h3 { 
+                margin: 0; 
+                font-size: 1em; 
+                font-weight: bold;
+            }
+            .status { 
+                padding: 0.25em 0.5em; 
+                border-radius: 0.25em; 
+                font-size: 1em; 
+                font-weight: bold; 
+                text-transform: uppercase; 
+            }
+            .status.passed { 
+                background: var(--vscode-testing-iconPassed); 
+                color: var(--vscode-button-foreground); 
+            }
+            .status.failed { 
+                background: var(--vscode-testing-iconFailed); 
+                color: var(--vscode-button-foreground); 
+            }
+            .status-badge { 
+                padding: 0.25em 0.5em; 
+                border-radius: 0.25em; 
+                font-size: 0.8em; 
+                font-weight: bold; 
+                text-transform: uppercase; 
+                display: inline-block;
+            }
+            .status-badge.success { 
+                background: var(--vscode-testing-iconPassed); 
+                color: var(--vscode-button-foreground); 
+            }
+            .status-badge.failed { 
+                background: var(--vscode-testing-iconFailed); 
+                color: var(--vscode-button-foreground); 
+            }
+            .request-content { 
+                padding: 1.25em; 
+            }
+            .section { 
+                margin-bottom: 1.25em; 
+            }
+            .section h4 { 
+                margin: 0 0 0.625em 0; 
+                font-size: 1em; 
+                font-weight: 600; 
+                color: var(--vscode-descriptionForeground); 
+                text-transform: uppercase; 
+            }
+            .method-url { 
+                display: flex; 
+                align-items: center; 
+                gap: 1em; 
+                padding: 0.625em; 
+                background: var(--vscode-textCodeBlock-background); 
+                border-radius: 0.375em; 
+            }
+            .method { 
+                padding: 0.25em 0.5em; 
+                border-radius: 0.25em; 
+                font-size: 1em; 
+                font-weight: bold; 
+                text-transform: uppercase; 
+                min-width: 3em; 
+                text-align: center; 
+                color: var(--vscode-button-foreground); 
+            }
+            .method-get { background: var(--vscode-terminal-ansiGreen); } 
+            .method-post { background: var(--vscode-terminal-ansiYellow); } 
+            .method-put { background: var(--vscode-terminal-ansiBlue); } 
+            .method-delete { background: var(--vscode-terminal-ansiRed); }
+            .url { 
+                font-family: var(--vscode-editor-font-family); 
+                font-weight: 500; 
+                word-break: break-all; 
+                flex: 1; 
+            }
+            .status-line { 
+                display: flex; 
+                align-items: center; 
+                gap: 1em; 
+                padding: 0.625em; 
+                background: var(--vscode-textCodeBlock-background); 
+                border-radius: 0.375em; 
+            }
+            .status-code { 
+                padding: 0.25em 0.5em; 
+                border-radius: 0.25em; 
+                font-weight: bold; 
+                min-width: 2.5em; 
+                text-align: center; 
+                color: var(--vscode-button-foreground); 
+            }
+            .status-success { background: var(--vscode-terminal-ansiGreen); } 
+            .status-error { background: var(--vscode-terminal-ansiRed); }
+            .status-text { 
+                font-weight: 500; 
+                flex: 1; 
+            }
+            .duration { 
+                font-size: 1em; 
+                color: var(--vscode-badge-foreground); 
+                background: var(--vscode-badge-background); 
+                padding: 0.125em 0.375em; 
+                border-radius: 0.1875em; 
+            }
+            .body-container { 
+                margin-top: 0.625em; 
+            }
+            .code-block { 
+                position: relative; 
+            }
+            .copy-btn { 
+                background: var(--vscode-button-secondaryBackground); 
+                color: var(--vscode-button-secondaryForeground); 
+                border: none; 
+                border-radius: 0.1875em; 
+                padding: 0.25em 0.5em; 
+                cursor: pointer; 
+                font-size: 1em; 
+                font-family: var(--vscode-font-family);
+            }
+            .copy-btn:hover { 
+                background: var(--vscode-button-secondaryHoverBackground); 
+            }
+            .inline-copy-btn { 
+                position: absolute; 
+                top: 0.5em; 
+                right: 0.5em; 
+                background: var(--vscode-button-secondaryBackground); 
+                color: var(--vscode-button-secondaryForeground); 
+            }
+            .inline-copy-btn:hover { 
+                background: var(--vscode-button-secondaryHoverBackground); 
+            }
+            pre.body { 
+                background: var(--vscode-textCodeBlock-background); 
+                padding: 1em; 
+                border-radius: 0.375em; 
+                overflow-x: auto; 
+                font-family: var(--vscode-editor-font-family); 
+                font-size: 1em; 
+                margin: 0; 
+                white-space: pre-wrap; 
+                border: 1px solid var(--vscode-panel-border); 
+            }
+            pre.body.json { 
+                color: var(--vscode-editor-foreground); 
+            }
+            .json-key { 
+                color: var(--vscode-debugTokenExpression-name) !important; 
+                font-weight: 500; 
+            }
+            .json-string { 
+                color: var(--vscode-debugTokenExpression-string) !important; 
+            }
+            .json-number { 
+                color: var(--vscode-debugTokenExpression-number) !important; 
+            }
+            .json-boolean { 
+                color: var(--vscode-debugTokenExpression-boolean) !important; 
+                font-weight: 500; 
+            }
+            .json-null { 
+                color: var(--vscode-debugTokenExpression-value) !important; 
+                font-weight: 500; 
+                font-style: italic; 
+            }
+            .error-message { 
+                color: var(--vscode-errorForeground); 
+            }
+            .error-info { 
+                padding: 0.625em; 
+                background: var(--vscode-textCodeBlock-background); 
+                border-radius: 0.375em; 
+                color: var(--vscode-descriptionForeground); 
+                font-style: italic; 
+            }
+            .no-results { 
+                text-align: center; 
+                padding: 3.75em 1.25em; 
+                color: var(--vscode-descriptionForeground); 
+            }
+            .toggle-url-btn { 
+                background: var(--vscode-button-background); 
+                color: var(--vscode-button-foreground); 
+                border: none; 
+                border-radius: 0.25em; 
+                padding: 0.25em 0.5em; 
+                cursor: pointer; 
+                font-size: 1em; 
+                font-weight: 500; 
+                font-family: var(--vscode-font-family);
+            }
+            .toggle-url-btn:hover { 
+                background: var(--vscode-button-hoverBackground); 
+            }
+            .test-section { 
+                margin-top: 1.125em; 
+            }
+            .test-section h4 { 
+                margin-bottom: 0.5em; 
+            }
+            .test-summary { 
+                font-size: 1em; 
+                font-weight: 600; 
+                margin-bottom: 0.375em; 
+            }
+            .test-passed-summary { 
+                color: var(--vscode-testing-iconPassed); 
+            }
+            .test-failed-summary { 
+                color: var(--vscode-testing-iconFailed); 
+            }
+            .test-list { 
+                list-style: none; 
+                padding: 0; 
+                margin: 0; 
+            }
+            .test-item { 
+                display: flex; 
+                align-items: center; 
+                gap: 0.625em; 
+                padding: 0.375em 0; 
+                font-size: 1em; 
+            }
+            .test-passed { 
+                color: var(--vscode-testing-iconPassed); 
+            }
+            .test-failed { 
+                color: var(--vscode-testing-iconFailed); 
+                font-weight: bold; 
+            }
+            .test-status { 
+                font-size: 1em; 
+                margin-right: 0.25em; 
+            }
+            .test-name { 
+                font-family: var(--vscode-editor-font-family); 
+                font-weight: 500; 
+            }
+            .test-message { 
+                margin-left: 0.5em; 
+                color: var(--vscode-descriptionForeground); 
+                font-style: italic; 
+            }
             
             /* Collapsible sections */
             .headers-toggle, .body-toggle { 
                 background: var(--vscode-button-secondaryBackground); 
                 color: var(--vscode-button-secondaryForeground); 
                 border: none; 
-                border-radius: 3px; 
-                padding: 4px 8px; 
+                border-radius: 0.1875em; 
+                padding: 0.25em 0.5em; 
                 cursor: pointer; 
-                font-size: 11px; 
-                margin-bottom: 8px; 
+                font-size: 1em; 
+                margin-bottom: 0.5em; 
                 display: inline-flex; 
                 align-items: center; 
-                gap: 5px; 
+                gap: 0.3125em; 
+                font-family: var(--vscode-font-family);
             }
             .headers-toggle:hover, .body-toggle:hover { 
                 background: var(--vscode-button-secondaryHoverBackground); 
@@ -679,32 +980,35 @@ private static readonly disposables: vscode.Disposable[] = [];
                 transform: rotate(0deg); 
             }
             .headers-content, .body-content { 
-                margin-top: 5px; 
+                margin-top: 0.3125em; 
             }
             .headers-content.collapsed, .body-content.collapsed { 
                 display: none; 
             }
             
             /* Retry section styles */
-            .retry-container { margin-top: 10px; }
+            .retry-container { 
+                margin-top: 0.625em; 
+            }
             .retry-toggle { 
                 background: var(--vscode-button-secondaryBackground); 
                 color: var(--vscode-button-secondaryForeground); 
                 border: none; 
-                border-radius: 3px; 
-                padding: 4px 8px; 
+                border-radius: 0.1875em; 
+                padding: 0.25em 0.5em; 
                 cursor: pointer; 
-                font-size: 11px; 
-                margin-bottom: 8px; 
+                font-size: 1em; 
+                margin-bottom: 0.5em; 
                 display: inline-flex; 
                 align-items: center; 
-                gap: 5px; 
+                gap: 0.3125em; 
+                font-family: var(--vscode-font-family);
             }
             .retry-toggle:hover { 
                 background: var(--vscode-button-secondaryHoverBackground); 
             }
             .retry-content { 
-                margin-top: 5px; 
+                margin-top: 0.3125em; 
             }
             .retry-content.collapsed { 
                 display: none; 
@@ -712,33 +1016,33 @@ private static readonly disposables: vscode.Disposable[] = [];
             .retry-status { 
                 display: flex; 
                 align-items: center; 
-                gap: 8px; 
-                padding: 8px 12px; 
-                border-radius: 4px; 
-                margin-bottom: 8px; 
-                font-size: 13px; 
+                gap: 0.5em; 
+                padding: 0.5em 0.75em; 
+                border-radius: 0.25em; 
+                margin-bottom: 0.5em; 
+                font-size: 1em; 
                 font-weight: 500; 
             }
             .retry-status.retried { 
                 background: var(--vscode-terminal-ansiYellow); 
                 color: var(--vscode-button-foreground); 
             }
-            .retry-status.configured { 
-                background: var(--vscode-button-secondaryBackground); 
-                color: var(--vscode-button-secondaryForeground); 
+            .retry-status.single { 
+                background: var(--vscode-terminal-ansiGreen); 
+                color: var(--vscode-button-foreground); 
             }
             .retry-icon { 
-                font-size: 16px; 
+                font-size: 1em; 
             }
             .retry-details { 
                 background: var(--vscode-textCodeBlock-background); 
-                padding: 10px; 
-                border-radius: 4px; 
-                border-left: 3px solid var(--vscode-terminal-ansiYellow); 
+                padding: 0.625em; 
+                border-radius: 0.25em; 
+                border-left: 0.1875em solid var(--vscode-terminal-ansiYellow); 
             }
             .retry-detail { 
-                margin-bottom: 4px; 
-                font-size: 12px; 
+                margin-bottom: 0.25em; 
+                font-size: 1em; 
             }
             .retry-detail:last-child { 
                 margin-bottom: 0; 
@@ -746,42 +1050,42 @@ private static readonly disposables: vscode.Disposable[] = [];
             
             /* Retry attempts styles */
             .retry-attempts {
-                margin-top: 10px;
-                padding: 8px;
+                margin-top: 0.625em;
+                padding: 0.5em;
                 background: var(--vscode-editor-background);
-                border-radius: 4px;
+                border-radius: 0.25em;
                 border: 1px solid var(--vscode-panel-border);
             }
             .retry-attempts-header {
-                margin-bottom: 8px;
-                font-size: 12px;
+                margin-bottom: 0.5em;
+                font-size: 1em;
                 color: var(--vscode-foreground);
             }
             .retry-attempt {
                 display: flex;
                 align-items: center;
-                gap: 8px;
-                padding: 4px 8px;
-                margin: 2px 0;
-                border-radius: 3px;
-                font-size: 11px;
+                gap: 0.5em;
+                padding: 0.25em 0.5em;
+                margin: 0.125em 0;
+                border-radius: 0.1875em;
+                font-size: 1em;
                 font-family: var(--vscode-editor-font-family);
             }
             .retry-attempt.success {
-                background: rgba(0, 255, 0, 0.1);
-                border-left: 3px solid var(--vscode-terminal-ansiGreen);
+                background: var(--vscode-textCodeBlock-background);
+                border-left: 0.1875em solid var(--vscode-terminal-ansiGreen);
             }
             .retry-attempt.failed {
-                background: rgba(255, 0, 0, 0.1);
-                border-left: 3px solid var(--vscode-terminal-ansiRed);
+                background: var(--vscode-textCodeBlock-background);
+                border-left: 0.1875em solid var(--vscode-terminal-ansiRed);
             }
             .attempt-icon {
-                font-size: 14px;
-                min-width: 16px;
+                font-size: 1em;
+                min-width: 1em;
             }
             .attempt-number {
                 font-weight: bold;
-                min-width: 70px;
+                min-width: 4.375em;
                 color: var(--vscode-foreground);
             }
             .attempt-status {
@@ -789,9 +1093,9 @@ private static readonly disposables: vscode.Disposable[] = [];
                 color: var(--vscode-foreground);
             }
             .attempt-time {
-                font-size: 10px;
+                font-size: 1em;
                 color: var(--vscode-descriptionForeground);
-                font-family: monospace;
+                font-family: var(--vscode-editor-font-family);
             }
         `;
     }

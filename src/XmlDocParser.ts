@@ -95,34 +95,25 @@ export class XmlDocParser {
                 }
             }
 
-            console.log(`[XmlDocParser] Reading file: ${xmlPath}`);
             const xmlContent = await fs.promises.readFile(xmlPath, 'utf8');
-            console.log(`[XmlDocParser] File content length: ${xmlContent.length} bytes`);
 
             if (xmlContent.length === 0) {
-                console.log(`[XmlDocParser] File is empty: ${xmlPath}`);
                 return [];
             }
 
-            console.log(`[XmlDocParser] Parsing XML content...`);
             const result = await parseXmlString(xmlContent) as XmlDocResult;
-            
-            console.log(`[XmlDocParser] Assembly name:`, result.doc?.assembly?.name?.[0] || 'unknown');
 
             const members: XmlDocMember[] = [];
 
             if (!result.doc?.members?.[0]?.member) {
-                console.log(`[XmlDocParser] No valid documentation structure found in ${xmlPath}`);
                 return [];
             }
 
             const totalMembers = result.doc.members[0].member.length;
-            console.log(`[XmlDocParser] Processing ${totalMembers} members from ${xmlPath}`);
 
             for (const member of result.doc.members[0].member) {
                 try {
                     if (!member.$ || !member.$.name) {
-                        console.log(`[XmlDocParser] Skipping member with no name attribute`);
                         continue;
                     }
 
@@ -130,24 +121,19 @@ export class XmlDocParser {
                         name: member.$.name
                     };
 
-                    console.log(`[XmlDocParser] Processing member: ${docMember.name}`);
-
                     // Process summary
                     if (member.summary?.[0]) {
                         docMember.summary = this.processXmlValue(member.summary[0]);
-                        console.log(`[XmlDocParser] Found summary for ${docMember.name}`);
                     }
 
                     // Process remarks
                     if (member.remarks?.[0]) {
                         docMember.remarks = this.processXmlValue(member.remarks[0]);
-                        console.log(`[XmlDocParser] Found remarks for ${docMember.name}`);
                     }
 
                     // Process returns
                     if (member.returns?.[0]) {
                         docMember.returns = this.processXmlValue(member.returns[0]);
-                        console.log(`[XmlDocParser] Found returns for ${docMember.name}`);
                     }
 
                     // Process parameters
@@ -156,27 +142,18 @@ export class XmlDocParser {
                             name: p.$.name,
                             description: this.processXmlValue(p._)
                         }));
-                        console.log(`[XmlDocParser] Found ${docMember.params.length} parameters for ${docMember.name}`);
                     }
 
                     // Process example
                     if (member.example?.[0]) {
                         docMember.example = this.processXmlValue(member.example[0]);
-                        console.log(`[XmlDocParser] Found example for ${docMember.name}`);
                     }
 
                     members.push(docMember);
-                    console.log(`[XmlDocParser] Successfully processed member: ${docMember.name}`);
                 } catch (memberError) {
-                    console.error(`[XmlDocParser] Error processing member ${member?.$.name || 'unknown'}:`, memberError);
-                    if (memberError instanceof Error) {
-                        console.error(`[XmlDocParser] Error stack:`, memberError.stack);
-                    }
+                    // Silently continue on member processing errors
                 }
             }
-
-            console.log(`[XmlDocParser] Successfully processed ${members.length}/${totalMembers} members from ${xmlPath}`);
-            console.log(`[XmlDocParser] First few members:`, members.slice(0, 3).map(m => m.name));
 
             // Cache the results
             this.cache.set(xmlPath, members);

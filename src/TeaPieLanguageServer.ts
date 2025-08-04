@@ -7,9 +7,6 @@ import { XmlDocMember, XmlDocParser } from './XmlDocParser';
 // Create output channel for logging
 let outputChannel: vscode.OutputChannel;
 
-// Remove this import if not used
-// import { fileURLToPath } from 'url';T
-
 export class TeaPieLanguageServer {
     private static instance: TeaPieLanguageServer;
     private context: vscode.ExtensionContext;

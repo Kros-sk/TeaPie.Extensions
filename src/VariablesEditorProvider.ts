@@ -57,11 +57,9 @@ export class VariablesEditorProvider {
                             'TestCaseVariables' in message.variables) {
                             
                             VariablesEditorProvider.currentVariables = message.variables;
-                            console.log('Variables updated:', JSON.stringify(VariablesEditorProvider.currentVariables));
                         }
                         return;
                     case 'saveVariables':
-                        console.log('Saving variables:', JSON.stringify(VariablesEditorProvider.currentVariables));
                         await VariablesEditorProvider.saveVariables(VariablesEditorProvider.currentVariables);
                         return;
                 }
