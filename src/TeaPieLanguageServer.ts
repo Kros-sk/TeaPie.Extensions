@@ -7,9 +7,6 @@ import { XmlDocMember, XmlDocParser } from './XmlDocParser';
 // Create output channel for logging
 let outputChannel: vscode.OutputChannel;
 
-// Remove this import if not used
-// import { fileURLToPath } from 'url';
-
 export class TeaPieLanguageServer {
     private static instance: TeaPieLanguageServer;
     private context: vscode.ExtensionContext;
@@ -105,7 +102,7 @@ export class TeaPieLanguageServer {
                                 const beforeDot = linePrefix.slice(0, -1).trim();
                                 outputChannel.appendLine(`[TeaPie] Providing completions for context: "${beforeDot}"`);
                                 const filteredMembers = XmlDocParser.getCompletionItems(this.xmlDocs, beforeDot);
-                                completionItems = filteredMembers.map(member => this.createCompletionItem(member));
+                                completionItems = filteredMembers.map((member: XmlDocMember) => this.createCompletionItem(member));
                             }
 
                             if (completionItems.length === 0) {
@@ -214,7 +211,7 @@ export class TeaPieLanguageServer {
                 const teaPieMembers = XmlDocParser.getMembersByType(this.xmlDocs, 'TeaPie.TeaPie');
                 outputChannel.appendLine(`[TeaPie] Found ${teaPieMembers.length} TeaPie.TeaPie members`);
                 if (teaPieMembers.length > 0) {
-                    outputChannel.appendLine('[TeaPie] Sample TeaPie members: ' + JSON.stringify(teaPieMembers.slice(0, 3).map(m => m.name)));
+                    outputChannel.appendLine('[TeaPie] Sample TeaPie members: ' + JSON.stringify(teaPieMembers.slice(0, 3).map((m: XmlDocMember) => m.name)));
                 }
             }
         } catch (error) {

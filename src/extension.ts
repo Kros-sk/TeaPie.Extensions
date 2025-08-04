@@ -9,6 +9,7 @@ import { EnvironmentEditorProvider } from './EnvironmentEditorProvider';
 import { HttpCompletionProvider } from './HttpCompletionProvider';
 import { HttpHoverProvider } from './HttpHoverProvider';
 import { HttpPreviewProvider } from './HttpPreviewProvider';
+import { HttpRequestRunner } from './HttpRequestRunner';
 import { TeaPieInitializer } from './utils/TeaPieInitializer';
 import { TeaPieLanguageServer } from './TeaPieLanguageServer';
 import { TestRenameProvider } from './TestRenameProvider';
@@ -35,6 +36,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Create TeaPie initializer but don't run initialization yet
     const initializer = new TeaPieInitializer(outputChannel);
+
+    // Initialize HttpRequestRunner
+    HttpRequestRunner.setOutputChannel(outputChannel);
 
     // Initialize the TeaPie language server
     const server = TeaPieLanguageServer.getInstance(context);
@@ -640,6 +644,14 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // Register the command to run HTTP requests and show results
+    let runHttpRequestDisposable = vscode.commands.registerCommand('teapie-extensions.runHttpRequest', async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (editor && editor.document.languageId === 'http') {
+            await HttpRequestRunner.runHttpFile(editor.document.uri);
+        }
+    });
+
     // Register command to open variables editor
     context.subscriptions.push(
         vscode.commands.registerCommand('teapie-extensions.openVariablesEditor', async () => {
@@ -766,6 +778,7 @@ export async function activate(context: vscode.ExtensionContext) {
         visualEditorDisposable,
         navigateToFolderDisposable,
         runHttpTestDisposable,
+        runHttpRequestDisposable,
         vscode.commands.registerCommand('teapie-extensions.showTestDetails', (item: TestResultItem) => {
             testResultsWebviewProvider.showTestDetails(item);
         }),
@@ -1110,4 +1123,12 @@ async function writeJsonFile(filePath: string, content: any): Promise<void> {
 
 export function deactivate() {
     console.log('TeaPie extension deactivated');
+    
+    // Dispose of HttpRequestRunner resources
+    HttpRequestRunner.dispose();
+    
+    // Dispose of output channel
+    if (outputChannel) {
+        outputChannel.dispose();
+    }
 } 
