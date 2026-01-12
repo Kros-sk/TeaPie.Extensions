@@ -13,6 +13,7 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - ⌨️ Keyboard shortcuts for efficient test execution
 - 🔄 Automatic test file cycling
 - 📝 HTTP file preview support
+- 🌐 Run HTTP requests directly from .http files and preview the results
 - 🔍 Easy navigation between test cases
 - 🎨 Syntax highlighting for .http files (directives, methods, headers, etc.)
 - 💡 IntelliSense support for TeaPie directives
@@ -33,6 +34,8 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `TeaPie: Explore Collection` - Browse your test collection
 - `TeaPie: Refresh Explorer` - Refresh the TeaPie Explorer view
 - `TeaPie: Open HTML Preview (F6)` - Open the current HTTP file in HTML preview mode
+- `TeaPie: Run HTTP Request (F8)` - Run the HTTP request in the current file
+- `TeaPie: Compile Script (Ctrl+Alt+K)` - Compile C# scripts
 - `TeaPie: Open Documentation` - Open [TeaPie documentation](https://www.teapie.fun) in your default browser
 - `TeaPie: Focus on Test Results` - Focus on the Test Results view
 - `TeaPie: Open Variables Editor (Ctrl+Alt+V)` - Open the visual editor for managing TeaPie variables
@@ -43,8 +46,10 @@ Visit [TeaPie website](https://www.teapie.fun/) to learn more about the testing 
 - `F5` - Run the current test
 - `F6` - Preview HTTP file
 - `F7` - Cycle through test files
+- `F8` - Run HTTP Request
 - `Alt+F7` - Move to next test case
 - `Ctrl+Alt+F7` - Move to next test case (including subdirectories)
+- `Ctrl+Alt+K` - Compile Script
 - `Ctrl+Alt+V` - Open Variables Editor
 - `Ctrl+Alt+N` - Open Environment Editor
 
@@ -62,6 +67,7 @@ Right-click on files or folders in the TeaPie Explorer to access additional acti
 ### Environment Management
 
 The Environment Editor allows you to:
+
 - Create and manage multiple environments (local, development, staging, production, etc.)
 - Define shared variables that are available across all environments
 - Switch between environments using the status bar indicator
@@ -73,6 +79,12 @@ The Environment Editor allows you to:
 - TeaPie installed on your system
 
 ## Release Notes
+
+### 0.0.31
+
+- ✨ Added HTTP request execution and overview enhancements
+  - New F8 shortcut to run HTTP requests directly from .http files
+  - Added HTTP overview window to view requests and their responses
 
 ### 0.0.27
 
@@ -131,4 +143,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## ⚠️ Disclaimer
 
-This extension was generated using artificial intelligence. While we strive for accuracy, there may be bugs or issues that need to be addressed. Please report any problems you encounter through GitHub issues
+This extension was generated using artificial intelligence. While we strive for accuracy, there may be bugs or issues that need to be addressed. Please report any problems you encounter through GitHub issues.

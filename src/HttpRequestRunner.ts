@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { 
     STATUS_PASSED,
     STATUS_FAILED,
+    STATUS_TESTS_FAILED,
     ERROR_HTTP_FAILED,
     ERROR_UNKNOWN
 } from './constants/httpResults';
@@ -50,6 +51,7 @@ export class HttpRequestRunner {
         this.panelColumn = undefined;
         this.lastHttpUri = undefined;
         this.lastRequestId = 0;
+        this.retryHandlerDisposable = undefined;
     }
 
     private static currentExecution: Promise<void> | null = null;
@@ -148,17 +150,32 @@ export class HttpRequestRunner {
         return TeaPieExecutor.executeTeaPie(filePath);
     }
 
+    private static retryHandlerDisposable: vscode.Disposable | undefined;
+
     private static setupRetryHandler(uri: vscode.Uri) {
         if (!this.currentPanel) return;
         
-        const messageDisposable = this.currentPanel.webview.onDidReceiveMessage(message => {
+        // Dispose existing retry handler to prevent duplicates
+        if (this.retryHandlerDisposable) {
+            try {
+                const index = this.disposables.indexOf(this.retryHandlerDisposable);
+                if (index > -1) {
+                    this.disposables.splice(index, 1);
+                }
+                this.retryHandlerDisposable.dispose();
+            } catch (error) {
+                this.outputChannel?.appendLine(`Warning: Failed to dispose retry handler: ${error}`);
+            }
+        }
+        
+        this.retryHandlerDisposable = this.currentPanel.webview.onDidReceiveMessage(message => {
             if (message?.command === 'retry' && this.lastHttpUri) {
-                            // Always use the stored split column for retry
+                // Always use the stored split column for retry
                 this.runHttpFile(this.lastHttpUri, this.panelColumn);
             }
         });
         
-        this.disposables.push(messageDisposable);
+        this.disposables.push(this.retryHandlerDisposable);
     }
 
     private static getLoadingContent(fileUri: vscode.Uri): string {
@@ -213,15 +230,117 @@ export class HttpRequestRunner {
         }[c] || c));
     }
 
+    private static formatTestMessage(message: string): string {
+        if (!message || message.trim() === '') return '';
+        
+        // Check if message contains newlines (stack traces)
+        if (message.includes('\n')) {
+            const lines = message.split('\n');
+            const formatted = lines.map((line, index) => {
+                const trimmedLine = line.trim();
+                if (!trimmedLine) return '';
+                
+                const escapedLine = this.escapeHtml(trimmedLine);
+                
+                if (index === 0) {
+                    // First line is the main error message
+                    return `<div class="test-message-main">${escapedLine}</div>`;
+                } else if (trimmedLine.startsWith('at ')) {
+                    // Stack trace lines
+                    return `<div class="test-message-stacktrace">${escapedLine}</div>`;
+                } else if (trimmedLine.startsWith('---')) {
+                    // Stack trace separator
+                    return `<div class="test-message-stacktrace">${escapedLine}</div>`;
+                } else {
+                    // Other detail lines
+                    return `<div class="test-message-detail">${escapedLine}</div>`;
+                }
+            }).filter(line => line !== '').join('');
+            
+            return `<div class="test-message-formatted">${formatted}</div>`;
+        }
+        
+        // Check if message contains assertion failure pattern
+        const assertionPattern = /(Expected:|Actual:|Value:)/;
+        if (!assertionPattern.test(message)) {
+            // Simple message - display on new line
+            return `<div class="test-message-formatted"><div class="test-message-detail">${this.escapeHtml(message)}</div></div>`;
+        }
+        
+        // Split by assertion keywords and format with indentation
+        const parts: string[] = [];
+        let remaining = message;
+        
+        // Split message by keywords while preserving them
+        const keywords = ['Expected:', 'Actual:', 'Value:'];
+        
+        for (const keyword of keywords) {
+            const index = remaining.indexOf(keyword);
+            if (index !== -1) {
+                if (index > 0) {
+                    const before = remaining.substring(0, index).trim();
+                    if (before) parts.push(before);
+                }
+                // Find the next keyword or end of string
+                let nextIndex = remaining.length;
+                for (const nextKeyword of keywords) {
+                    if (nextKeyword !== keyword) {
+                        const idx = remaining.indexOf(nextKeyword, index + keyword.length);
+                        if (idx !== -1 && idx < nextIndex) {
+                            nextIndex = idx;
+                        }
+                    }
+                }
+                parts.push(remaining.substring(index, nextIndex).trim());
+                remaining = remaining.substring(nextIndex);
+            }
+        }
+        if (remaining.trim()) {
+            parts.push(remaining.trim());
+        }
+        
+        // Build formatted HTML
+        const formatted = parts.map((part, index) => {
+            if (index === 0) {
+                // Main message - check if it contains assertion failure pattern
+                const escapedPart = this.escapeHtml(part);
+                const boldPattern = /(Assert\.[\w]+\(\)\s+Failure:)/;
+                const formattedPart = escapedPart.replace(boldPattern, '<strong>$1</strong>');
+                return `<div class="test-message-main">${formattedPart}</div>`;
+            } else {
+                // Assertion details with indentation - make keywords bold
+                const escapedPart = this.escapeHtml(part);
+                const boldKeywords = /(Expected:|Actual:|Value:)/;
+                const formattedPart = escapedPart.replace(boldKeywords, '<strong>$1</strong>');
+                return `<div class="test-message-detail">${formattedPart}</div>`;
+            }
+        }).join('');
+        
+        return `<div class="test-message-formatted">${formatted}</div>`;
+    }
+
     private static formatHeaders(headers: { [key: string]: string }): string {
         if (!headers || Object.keys(headers).length === 0) return 'No headers';
-        return Object.entries(headers)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join('\n');
+        
+        try {
+            const jsonString = JSON.stringify(headers, null, 2);
+            return this.formatJsonString(jsonString);
+        } catch {
+            return Object.entries(headers)
+                .map(([key, value]) => `${key}: ${value}`)
+                .join('\n');
+        }
     }
 
     private static renderRequestHeader(request: HttpRequestResult): string {
-        const statusText = request.Status === STATUS_PASSED ? 'Success' : 'Fail';
+        let statusText: string;
+        if (request.Status === STATUS_PASSED) {
+            statusText = 'Success';
+        } else if (request.Status === STATUS_TESTS_FAILED) {
+            statusText = 'Failed Test(s)';
+        } else {
+            statusText = 'Failed Request';
+        }
         const hasTitle = request.Name && !request.Name.match(CONTENT_PATTERNS.HTTP_METHOD_URL);
         if (hasTitle) {
             return `<div class="request-header">
@@ -241,27 +360,6 @@ export class HttpRequestRunner {
     }
 
     private static renderRequestSection(request: HttpRequestResult, idx: number): string {
-        let testHtml = '';
-        
-        if (request.Tests?.length) {
-            const allPassed = request.Tests.every(t => t.Passed);
-            const summaryClass = allPassed ? 'test-passed-summary' : 'test-failed-summary';
-            const summaryText = allPassed ? '👍 All tests passed' : '👎 Some tests failed';
-            testHtml = `
-                <div class="test-section">
-                    <h4>Tests</h4>
-                    <div class="test-summary ${summaryClass}">${summaryText}</div>
-                    <ul class="test-list">
-                        ${request.Tests.map(test => `
-                            <li class="test-item ${test.Passed ? 'test-passed' : 'test-failed'}">
-                                <span class="test-status">${test.Passed ? '✔️' : '❌'}</span>
-                                <span class="test-name">${this.escapeHtml(test.Name)}</span>
-                                ${(typeof test.Message === 'string' && test.Message.trim() !== '') ? `<span class="test-message">${this.escapeHtml(test.Message)}</span>` : ''}
-                            </li>`).join('')}
-                    </ul>
-                </div>
-            `;
-        }
         if (request.Request) {
             const body = this.formatBody(request.Request.Body);
             const { Method, Url, TemplateUrl } = request.Request;
@@ -278,7 +376,7 @@ export class HttpRequestRunner {
                         <span class="toggle-icon">▶</span>
                     </div>
                     <div class="headers-content collapsed" id="request-headers-${idx}">
-                        <pre class="headers-body">${this.formatHeaders(request.Request.Headers)}</pre>
+                        <pre class="body json">${this.formatHeaders(request.Request.Headers)}</pre>
                     </div>
                 </div>` : '';
             
@@ -288,7 +386,7 @@ export class HttpRequestRunner {
                     <div class="method-url">
                         <span class="method method-${this.escapeHtml(Method.toLowerCase())}">${this.escapeHtml(Method)}</span>
                         <span class="url" id="url-${idx}" data-resolved="${resolvedUrl}" data-template="${templateUrl}">${resolvedUrl}</span>
-                        ${hasTemplate && `<button class="toggle-url-btn" id="toggle-url-btn-${idx}" data-idx="${idx}">Show Variables</button>`}
+                        ${hasTemplate ? `<button class="toggle-url-btn" id="toggle-url-btn-${idx}" data-idx="${idx}">Show Variables</button>` : ''}
                         ${this.renderCopyButton(`url-${idx}`)}
                     </div>
                     ${headersHtml}
@@ -305,20 +403,51 @@ export class HttpRequestRunner {
                             </div>
                         </div>
                     </div>`}
-                    ${this.renderRetrySection(request, idx)}
-                    ${testHtml}
                 </div>`;
         } else if (request.ErrorMessage && !request.Response) {
             return `
                 <div class="section">
                     <h4>Request</h4>
                     <div class="error-info">Unable to process HTTP request</div>
-                    ${testHtml}
                 </div>`;
         } else if (request.Name.includes('Custom CSX Tests')) {
-            return testHtml;
+            return '';
         }
-        return testHtml;
+        return '';
+    }
+
+    private static renderTestsSection(request: HttpRequestResult): string {
+        if (!request.Tests?.length) return '';
+        
+        // Only show inline tests in request sections (CSX tests appear separately)
+        const inlineTests = request.Tests.filter(t => t.Source === 'inline' || !t.Source);
+        
+        if (inlineTests.length === 0) return '';
+        
+        const allPassed = inlineTests.every(t => t.Passed);
+        const summaryClass = allPassed ? 'test-passed-summary' : 'test-failed-summary';
+        const summaryText = allPassed ? '👍 All tests passed' : '<strong>👎 Some tests failed</strong>';
+        
+        return `
+            <div class="section">
+                <div class="test-section">
+                    <h4>Tests</h4>
+                    <div class="test-summary ${summaryClass}">${summaryText}</div>
+                    <ul class="test-list">
+                        ${inlineTests.map((test, index) => {
+                            // Remove existing test number from name (e.g., "[2] Test name" -> "Test name")
+                            const testName = test.Name.replace(/^\[\d+\]\s*/, '');
+                            return `
+                            <li class="test-item ${test.Passed ? 'test-passed' : 'test-failed'}">
+                                <span class="test-status">${test.Passed ? '✔️' : '❌'}</span>
+                                <span class="test-name">${this.escapeHtml(testName)}</span>
+                                ${(typeof test.Message === 'string' && test.Message.trim() !== '') ? this.formatTestMessage(test.Message) : ''}
+                            </li>`;
+                        }).join('')}
+                    </ul>
+                </div>
+            </div>
+        `;
     }
 
     private static renderRetrySection(request: HttpRequestResult, idx: number): string {
@@ -326,45 +455,39 @@ export class HttpRequestRunner {
             return '';
         }
 
-        const { strategyName, backoffType, attempts } = request.RetryInfo;
-        // Only count actual attempts performed: initial + retries
-        const performedRetries = attempts ? attempts.length : 0;
-        const shownActualAttempts = performedRetries + 1;
-        const initialText = performedRetries > 0 ? `1 initial + ${performedRetries} retr${performedRetries === 1 ? 'y' : 'ies'}` : '1 initial';
+        const { strategyName, backoffType, attempts, wasRetried, actualAttempts: totalAttempts = attempts?.length || 1 } = request.RetryInfo;
+        
+        const actuallyRetried = wasRetried ?? (attempts && attempts.length > 1);
+        const retryCount = Math.max(0, totalAttempts - 1);
+        
+        const initialText = retryCount > 0 ? `1 initial + ${retryCount} retr${retryCount === 1 ? 'y' : 'ies'}` : '1 initial';
 
-        let retryStatusHtml = '';
-        if (performedRetries > 0) {
-            retryStatusHtml = `
-                <div class="retry-status retried">
-                    <span class="retry-icon">🔄</span>
-                    <span class="retry-text">Request was retried (${initialText})</span>
-                </div>`;
-        } else {
-            retryStatusHtml = `
-                <div class="retry-status single">
-                    <span class="retry-icon">✔️</span>
-                    <span class="retry-text">Request sent (1 attempt)</span>
-                </div>`;
-        }
+        // Check if all retry attempts succeeded
+        const allRetriesSucceeded = attempts?.every(a => a.success) ?? true;
 
+        // Determine border color for retry details
+        const borderColorClass = allRetriesSucceeded ? 'retry-details-success' : 'retry-details-failed';
+        
         const retryDetailsHtml = `
-            <div class="retry-details">
+            <div class="retry-details ${borderColorClass}">
                 ${strategyName ? `<div class="retry-detail"><strong>Strategy:</strong> ${this.escapeHtml(strategyName)}</div>` : ''}
-                <div class="retry-detail"><strong>Total Attempts:</strong> ${shownActualAttempts} (${initialText})</div>
+                <div class="retry-detail"><strong>Total Attempts:</strong> ${totalAttempts} (${initialText})</div>
                 ${typeof request.RetryInfo.maxAttempts !== 'undefined' ? `<div class="retry-detail"><strong>Max Attempts:</strong> ${this.escapeHtml(request.RetryInfo.maxAttempts.toString())}</div>` : ''}
                 ${backoffType ? `<div class="retry-detail"><strong>Backoff Type:</strong> ${this.escapeHtml(backoffType)}</div>` : ''}
                 ${this.renderRetryAttempts(request.RetryInfo)}
             </div>`;
 
         return `
-            <div class="retry-container">
-                <div class="retry-toggle" onclick="toggleSection('retry-info-${idx}')">
-                    <span>Retry Information</span>
-                    <span class="toggle-icon">▶</span>
-                </div>
-                <div class="retry-content collapsed" id="retry-info-${idx}">
-                    ${retryStatusHtml}
-                    ${retryDetailsHtml}
+            <div class="section">
+                <h4>Retry Information</h4>
+                <div class="retry-container">
+                    <div class="retry-toggle" onclick="toggleSection('retry-info-${idx}')">
+                        <span>Details</span>
+                        <span class="toggle-icon expanded">▼</span>
+                    </div>
+                    <div class="retry-content" id="retry-info-${idx}">
+                        ${retryDetailsHtml}
+                    </div>
                 </div>
             </div>`;
     }
@@ -391,18 +514,40 @@ export class HttpRequestRunner {
                 statusBlock = `<span class="status-badge failed">${this.escapeHtml(errorText)}</span>`;
             }
             
+            // Format timestamp and calculate interval
+            let timeDisplay = '';
+            if (attempt.timestamp) {
+                try {
+                    const date = new Date(attempt.timestamp);
+                    const day = date.getDate().toString().padStart(2, '0');
+                    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                    const year = date.getFullYear();
+                    const dateStr = `${day}.${month}.${year}`;
+                    const timeStr = date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    const ms = date.getMilliseconds().toString().padStart(3, '0');
+                    timeDisplay = `${dateStr} ${timeStr}.${ms}`;
+                    
+                    // Calculate interval from previous attempt
+                    if (index > 0 && retryInfo.attempts && retryInfo.attempts[index - 1]?.timestamp) {
+                        const prevDate = new Date(retryInfo.attempts[index - 1].timestamp!);
+                        const intervalMs = date.getTime() - prevDate.getTime();
+                        const intervalSec = (intervalMs / 1000).toFixed(1);
+                        timeDisplay += ` <span class="attempt-interval">(+${intervalSec}s)</span>`;
+                    }
+                } catch {
+                    timeDisplay = attempt.timestamp;
+                }
+            }
+            
             return `
                 <div class="retry-attempt ${statusClass}">
-                    <span class="attempt-icon">${statusIcon}</span>
-                    <span class="attempt-number">Attempt ${attempt.attemptNumber}</span>
                     <span class="attempt-status">${statusBlock}</span>
-                    ${attempt.timestamp ? `<span class="attempt-time">${attempt.timestamp}</span>` : ''}
+                    ${timeDisplay ? `<span class="attempt-time">${timeDisplay}</span>` : ''}
                 </div>`;
         }).join('');
 
         return `
             <div class="retry-attempts">
-                <div class="retry-attempts-header"><strong>Retry Attempts:</strong></div>
                 ${attemptsHtml}
             </div>`;
     }
@@ -424,7 +569,7 @@ export class HttpRequestRunner {
                     <span class="toggle-icon">▶</span>
                 </div>
                 <div class="headers-content collapsed" id="response-headers-${idx}">
-                    <pre class="headers-body">${this.formatHeaders(request.Response.Headers)}</pre>
+                    <pre class="body json">${this.formatHeaders(request.Response.Headers)}</pre>
                 </div>
             </div>` : '';
         
@@ -487,13 +632,13 @@ export class HttpRequestRunner {
                     if (request.Name.includes('Custom CSX Tests')) {
                         const allPassed = request.Tests?.every(t => t.Passed) ?? true;
                         const summaryClass = allPassed ? 'test-passed-summary' : 'test-failed-summary';
-                        const summaryText = allPassed ? '👍 All tests passed' : '👎 Some tests failed';
+                        const summaryText = allPassed ? '👍 All tests passed' : '<strong>👎 Some tests failed</strong>';
                         const statusText = request.Status === 'Passed' ? 'Success' : 'Fail';
                         
                         requestsHtml += `
                             <div class="request-item">
                                 <div class="request-header">
-                                    <h3>${this.escapeHtml(request.Name)}</h3>
+                                    <h3>Other Tests</h3>
                                     <span class="status ${request.Status.toLowerCase()}">${statusText}</span>
                                 </div>
                                 <div class="request-content">
@@ -503,7 +648,7 @@ export class HttpRequestRunner {
                                             <li class="test-item ${test.Passed ? 'test-passed' : 'test-failed'}">
                                                 <span class="test-status">${test.Passed ? '✔️' : '❌'}</span>
                                                 <span class="test-name">${this.escapeHtml(test.Name)}</span>
-                                ${(typeof test.Message === 'string' && test.Message.trim() !== '') ? `<span class="test-message">${this.escapeHtml(test.Message)}</span>` : ''}
+                                                ${(typeof test.Message === 'string' && test.Message.trim() !== '') ? this.formatTestMessage(test.Message) : ''}
                                             </li>
                                         `).join('')}
                                     </ul>
@@ -516,7 +661,9 @@ export class HttpRequestRunner {
                     if (request.Request || request.ErrorMessage || (request.Tests && request.Tests.length > 0)) renderedRequests++;
                     const headerHtml = this.renderRequestHeader(request);
                     const requestHtml = this.renderRequestSection(request, idx);
+                    const retryHtml = this.renderRetrySection(request, idx);
                     const responseHtml = this.renderResponseSection(request, idx);
+                    const testsHtml = this.renderTestsSection(request);
                     const errorHtml = this.renderErrorSection(request);
                     
                     requestsHtml += `
@@ -524,7 +671,9 @@ export class HttpRequestRunner {
                             ${headerHtml}
                             <div class="request-content">
                                 ${requestHtml}
+                                ${retryHtml}
                                 ${responseHtml}
+                                ${testsHtml}
                                 ${errorHtml}
                             </div>
                         </div>`;
@@ -723,6 +872,10 @@ export class HttpRequestRunner {
                 background: var(--vscode-testing-iconPassed); 
                 color: var(--vscode-button-foreground); 
             }
+            .status.testsfailed { 
+                background: var(--vscode-terminal-ansiYellow); 
+                color: var(--vscode-button-foreground); 
+            }
             .status.failed { 
                 background: var(--vscode-testing-iconFailed); 
                 color: var(--vscode-button-foreground); 
@@ -808,10 +961,7 @@ export class HttpRequestRunner {
             }
             .duration { 
                 font-size: 1em; 
-                color: var(--vscode-badge-foreground); 
-                background: var(--vscode-badge-background); 
-                padding: 0.125em 0.375em; 
-                border-radius: 0.1875em; 
+                color: var(--vscode-descriptionForeground); 
             }
             .body-container { 
                 margin-top: 0.625em; 
@@ -928,10 +1078,11 @@ export class HttpRequestRunner {
             }
             .test-item { 
                 display: flex; 
-                align-items: center; 
+                align-items: flex-start; 
                 gap: 0.625em; 
                 padding: 0.375em 0; 
                 font-size: 1em; 
+                flex-wrap: wrap;
             }
             .test-passed { 
                 color: var(--vscode-testing-iconPassed); 
@@ -953,8 +1104,46 @@ export class HttpRequestRunner {
                 color: var(--vscode-descriptionForeground); 
                 font-style: italic; 
             }
+            .test-message-formatted {
+                flex-basis: 100%;
+                margin-left: 2em;
+                margin-top: 0.25em;
+                color: var(--vscode-descriptionForeground);
+                font-family: var(--vscode-editor-font-family);
+            }
+            .test-message-main {
+                margin-bottom: 0.25em;
+                color: var(--vscode-descriptionForeground);
+                font-family: var(--vscode-editor-font-family);
+            }
+            .test-message-main strong {
+                font-weight: bold;
+                color: var(--vscode-descriptionForeground);
+            }
+            .test-message-detail {
+                margin-left: 1em;
+                font-family: var(--vscode-editor-font-family);
+                font-size: 1em;
+                padding: 0.125em 0;
+                color: var(--vscode-descriptionForeground);
+            }
+            .test-message-detail strong {
+                font-weight: bold;
+                color: var(--vscode-descriptionForeground);
+            }
+            .test-message-stacktrace {
+                margin-left: 1.5em;
+                font-family: var(--vscode-editor-font-family);
+                font-size: 0.9em;
+                padding: 0.125em 0;
+                color: var(--vscode-descriptionForeground);
+                opacity: 0.8;
+            }
             
             /* Collapsible sections */
+            .headers-container {
+                margin-top: 0.75em;
+            }
             .headers-toggle, .body-toggle { 
                 background: var(--vscode-button-secondaryBackground); 
                 color: var(--vscode-button-secondaryForeground); 
@@ -1023,8 +1212,12 @@ export class HttpRequestRunner {
                 font-size: 1em; 
                 font-weight: 500; 
             }
-            .retry-status.retried { 
-                background: var(--vscode-terminal-ansiYellow); 
+            .retry-status.retried-success { 
+                background: var(--vscode-terminal-ansiGreen); 
+                color: var(--vscode-button-foreground); 
+            }
+            .retry-status.retried-failed { 
+                background: var(--vscode-terminal-ansiRed); 
                 color: var(--vscode-button-foreground); 
             }
             .retry-status.single { 
@@ -1038,7 +1231,12 @@ export class HttpRequestRunner {
                 background: var(--vscode-textCodeBlock-background); 
                 padding: 0.625em; 
                 border-radius: 0.25em; 
-                border-left: 0.1875em solid var(--vscode-terminal-ansiYellow); 
+            }
+            .retry-details-success { 
+                border-left: 0.1875em solid var(--vscode-terminal-ansiGreen); 
+            }
+            .retry-details-failed { 
+                border-left: 0.1875em solid var(--vscode-terminal-ansiRed); 
             }
             .retry-detail { 
                 margin-bottom: 0.25em; 
@@ -1089,13 +1287,21 @@ export class HttpRequestRunner {
                 color: var(--vscode-foreground);
             }
             .attempt-status {
-                flex: 1;
                 color: var(--vscode-foreground);
             }
             .attempt-time {
                 font-size: 1em;
                 color: var(--vscode-descriptionForeground);
                 font-family: var(--vscode-editor-font-family);
+                margin-left: auto;
+            }
+            .attempt-interval {
+                font-size: 0.9em;
+                color: var(--vscode-descriptionForeground);
+                opacity: 0.7;
+                font-style: italic;
+                display: inline-block;
+                min-width: 4em;
             }
         `;
     }
@@ -1105,23 +1311,84 @@ export class HttpRequestRunner {
             const retryBtn = document.getElementById('retry-btn');
             retryBtn?.addEventListener('click', () => window.acquireVsCodeApi?.().postMessage({ command: 'retry' }));
 
+            const buttonTimeouts = new Map();
+            const buttonOriginalText = new Map();
+
             window.copyToClipboard = (btn, id) => {
                 const el = document.getElementById(id);
                 if (!el) return;
                 const text = el.textContent || el.innerText;
-                navigator.clipboard.writeText(text)
-                    .then(() => setBtn(btn, '✅ Copied', 'var(--vscode-terminal-ansiGreen)'))
-                    .catch(() => setBtn(btn, '❌ Failed'));
+                
+                // Ensure window has focus before attempting clipboard access
+                window.focus();
+                btn.focus();
+                
+                // Try modern clipboard API first
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text)
+                        .then(() => setBtn(btn, '✅ Copied', 'var(--vscode-terminal-ansiGreen)'))
+                        .catch(() => {
+                            // Fallback to older method if clipboard API fails
+                            if (fallbackCopy(text)) {
+                                setBtn(btn, '✅ Copied', 'var(--vscode-terminal-ansiGreen)');
+                            } else {
+                                setBtn(btn, '❌ Failed');
+                            }
+                        });
+                } else {
+                    // Use fallback for older browsers
+                    if (fallbackCopy(text)) {
+                        setBtn(btn, '✅ Copied', 'var(--vscode-terminal-ansiGreen)');
+                    } else {
+                        setBtn(btn, '❌ Failed');
+                    }
+                }
             };
 
+            function fallbackCopy(text) {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    return successful;
+                } catch (err) {
+                    document.body.removeChild(textarea);
+                    return false;
+                }
+            }
+
             function setBtn(btn, txt, bg) {
-                const orig = btn.textContent;
+                // Store original text if not already stored
+                if (!buttonOriginalText.has(btn)) {
+                    buttonOriginalText.set(btn, btn.textContent);
+                }
+                const orig = buttonOriginalText.get(btn);
+                
+                // Clear any existing timeout
+                if (buttonTimeouts.has(btn)) {
+                    clearTimeout(buttonTimeouts.get(btn));
+                }
+                
                 btn.textContent = txt;
-                if (bg) btn.style.background = bg;
-                setTimeout(() => {
+                if (bg) {
+                    btn.style.background = bg;
+                    btn.style.color = 'white';
+                }
+                
+                const timeoutId = setTimeout(() => {
                     btn.textContent = orig;
                     btn.style.background = '';
+                    btn.style.color = '';
+                    buttonTimeouts.delete(btn);
+                    buttonOriginalText.delete(btn);
                 }, 1500);
+                
+                buttonTimeouts.set(btn, timeoutId);
             }
 
             // Toggle URL logic

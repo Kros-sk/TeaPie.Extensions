@@ -26,6 +26,7 @@ export interface HttpTestResult {
     Name: string;
     Passed: boolean;
     Message?: string;
+    Source?: 'inline' | 'csx';
 }
 
 export interface InternalRequest {

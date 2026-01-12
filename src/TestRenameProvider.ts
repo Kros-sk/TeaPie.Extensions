@@ -23,27 +23,32 @@ export class TestRenameProvider {
             // Get all files in the directory
             const files = fs.readdirSync(fullPath);
 
-            // Filter and sort files that match the pattern (number followed by dot and text)
+            // Filter and sort files that match the pattern (number followed by dot or dash)
             const testFiles = files
-                .filter(file => /^\d+\./.test(file))
+                .filter(file => /^\d+[.-]/.test(file))
                 .sort((a, b) => {
-                    const numA = parseInt(a.split('.')[0]);
-                    const numB = parseInt(b.split('.')[0]);
+                    const numA = parseInt(a.match(/^(\d+)/)?.[1] || '0');
+                    const numB = parseInt(b.match(/^(\d+)/)?.[1] || '0');
                     return numA - numB;
                 });
 
             // Find files that need to be renamed
             const filesToRename = testFiles.filter(file => {
-                const fileNumber = parseInt(file.split('.')[0]);
+                const fileNumber = parseInt(file.match(/^(\d+)/)?.[1] || '0');
                 return fileNumber >= startNumber;
             });
 
             // Rename files in reverse order to avoid conflicts
             for (let i = filesToRename.length - 1; i >= 0; i--) {
                 const oldName = filesToRename[i];
-                const oldNumber = parseInt(oldName.split('.')[0]);
+                const numberMatch = oldName.match(/^(\d+)/);
+                if (!numberMatch) continue;
+                
+                const originalNumberStr = numberMatch[1];
+                const oldNumber = parseInt(originalNumberStr);
                 const newNumber = oldNumber + shiftAmount;
-                const newName = oldName.replace(/^\d+/, newNumber.toString());
+                const newNumberStr = newNumber.toString().padStart(originalNumberStr.length, '0');
+                const newName = oldName.replace(/^\d+/, newNumberStr);
 
                 const oldPath = path.join(fullPath, oldName);
                 const newPath = path.join(fullPath, newName);
@@ -75,12 +80,12 @@ export class TestRenameProvider {
             // Get all files in the directory
             const files = fs.readdirSync(targetPath);
 
-            // Filter and sort files that match the pattern (number followed by dot and text)
+            // Filter and sort files that match the pattern (number followed by dot or dash)
             const testFiles = files
-                .filter(file => /^\d+\./.test(file))
+                .filter(file => /^\d+[.-]/.test(file))
                 .sort((a, b) => {
-                    const numA = parseInt(a.split('.')[0]);
-                    const numB = parseInt(b.split('.')[0]);
+                    const numA = parseInt(a.match(/^(\d+)/)?.[1] || '0');
+                    const numB = parseInt(b.match(/^(\d+)/)?.[1] || '0');
                     return numA - numB;
                 });
 
@@ -88,28 +93,33 @@ export class TestRenameProvider {
             let startNumber: number;
             if (fs.statSync(fullPath).isFile()) {
                 const fileName = path.basename(fullPath);
-                const match = fileName.match(/^(\d+)\./);
+                const match = fileName.match(/^(\d+)[.-]/);
                 if (!match) {
-                    throw new Error('Selected file does not follow the numbered test case pattern');
+                    throw new Error('Selected file does not follow the numbered test case pattern (must start with number followed by . or -)');
                 }
                 startNumber = parseInt(match[1]);
             } else {
                 // If it's a directory, find the lowest number in the directory
-                startNumber = Math.min(...testFiles.map(file => parseInt(file.split('.')[0])));
+                startNumber = Math.min(...testFiles.map(file => parseInt(file.match(/^(\d+)/)?.[1] || '0')));
             }
 
             // Find files that need to be renamed
             const filesToRename = testFiles.filter(file => {
-                const fileNumber = parseInt(file.split('.')[0]);
+                const fileNumber = parseInt(file.match(/^(\d+)/)?.[1] || '0');
                 return fileNumber >= startNumber;
             });
 
             // Rename files in reverse order to avoid conflicts
             for (let i = filesToRename.length - 1; i >= 0; i--) {
                 const oldName = filesToRename[i];
-                const oldNumber = parseInt(oldName.split('.')[0]);
+                const numberMatch = oldName.match(/^(\d+)/);
+                if (!numberMatch) continue;
+                
+                const originalNumberStr = numberMatch[1];
+                const oldNumber = parseInt(originalNumberStr);
                 const newNumber = oldNumber + 1;
-                const newName = oldName.replace(/^\d+/, newNumber.toString());
+                const newNumberStr = newNumber.toString().padStart(originalNumberStr.length, '0');
+                const newName = oldName.replace(/^\d+/, newNumberStr);
 
                 const oldPath = path.join(targetPath, oldName);
                 const newPath = path.join(targetPath, newName);
