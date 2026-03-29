@@ -2,7 +2,7 @@
   "name": "teapie-extensions",
   "displayName": "TeaPie Extensions",
   "description": "Run TeaPie tests directly from VS Code",
-  "version": "0.0.31",
+  "version": "0.0.32",
   "publisher": "kros",
   "icon": "resources/teapie.png",
   "repository": {
@@ -36,7 +36,8 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:**/*.http"
+    "workspaceContains:**/*.http",
+    "workspaceContains:**/*.tp"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -212,12 +213,12 @@
       "view/item/context": [
         {
           "command": "teapie-extensions.openFile",
-          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == initFile || viewItem == testFile || viewItem == testCase)",
+          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == initFile || viewItem == testFile || viewItem == testCase || viewItem == tpFile)",
           "group": "inline"
         },
         {
           "command": "teapie-extensions.runFile",
-          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == testCase)",
+          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == testCase || viewItem == tpFile)",
           "group": "inline"
         },
         {
@@ -227,7 +228,7 @@
         },
         {
           "command": "teapie-extensions.shiftSubsequentTests",
-          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == testCase || viewItem == directory)"
+          "when": "view == teapieExplorer && (viewItem == httpFile || viewItem == testCase || viewItem == tpFile || viewItem == directory)"
         },
         {
           "command": "teapie-extensions.openHttpFile",
@@ -254,7 +255,7 @@
         {
           "command": "teapie-extensions.runFile",
           "group": "teapie@2",
-          "when": "resourceFilename =~ /.*-req\\.http$/ || resourceFilename =~ /.*-test\\.csx$/"
+          "when": "resourceFilename =~ /.*-req\\.http$/ || resourceFilename =~ /.*-test\\.csx$/ || resourceExtname == .tp"
         },
         {
           "command": "teapie-extensions.generateTestCase",
@@ -269,13 +270,13 @@
         {
           "command": "teapie-extensions.previewHttpFile",
           "group": "teapie@6",
-          "when": "resourceExtname == .http"
+          "when": "resourceExtname == .http || resourceExtname == .tp"
         },
         {
           "command": "teapie-extensions.shiftSubsequentTests",
           "title": "TeaPie: Shift Subsequent Tests",
           "group": "teapie@1",
-          "when": "resourceFilename =~ /.*-req\\.http$/ || resourceFilename =~ /.*-test\\.csx$/ || explorerResourceIsFolder"
+          "when": "resourceFilename =~ /.*-req\\.http$/ || resourceFilename =~ /.*-test\\.csx$/ || resourceExtname == .tp || explorerResourceIsFolder"
         },
         {
           "command": "teapie-extensions.openVariablesEditor",
@@ -296,17 +297,17 @@
       "editor/context": [
         {
           "command": "teapie-extensions.runFile",
-          "when": "resourceFilename =~ /\\.(csx|http)$/",
+          "when": "resourceFilename =~ /\\.(csx|http|tp)$/",
           "group": "navigation@1"
         },
         {
           "command": "teapie-extensions.previewHttpFile",
-          "when": "resourceExtname == .http",
+          "when": "resourceExtname == .http || resourceExtname == .tp",
           "group": "navigation@3"
         },
         {
           "command": "teapie-extensions.runHttpRequest",
-          "when": "resourceExtname == .http",
+          "when": "resourceExtname == .http || resourceExtname == .tp",
           "group": "navigation@4"
         },
         {
@@ -318,17 +319,17 @@
       "editor/title": [
         {
           "command": "teapie-extensions.runHttpTest",
-          "when": "resourceExtname == .http",
+          "when": "resourceExtname == .http || resourceExtname == .tp",
           "group": "navigation"
         },
         {
           "command": "teapie-extensions.previewHttpFile",
-          "when": "resourceExtname == .http",
+          "when": "resourceExtname == .http || resourceExtname == .tp",
           "group": "navigation"
         },
         {
           "command": "teapie-extensions.runHttpRequest",
-          "when": "resourceExtname == .http",
+          "when": "resourceExtname == .http || resourceExtname == .tp",
           "group": "navigation"
         }
       ]
@@ -338,13 +339,13 @@
         "command": "teapie-extensions.runFile",
         "key": "f5",
         "mac": "f5",
-        "when": "editorTextFocus && (resourceFilename =~ /.*-req\\.http$/ || (resourceFilename =~ /.*-test\\.csx$/ && resourcePath =~ /.*-req\\.http$/))"
+        "when": "editorTextFocus && (resourceFilename =~ /.*-req\\.http$/ || resourceExtname == .tp || (resourceFilename =~ /.*-test\\.csx$/ && resourcePath =~ /.*-req\\.http$/))"
       },
       {
         "command": "teapie-extensions.previewHttpFile",
         "key": "f6",
         "mac": "f6",
-        "when": "editorTextFocus && resourceFilename =~ /.*-req\\.http$/"
+        "when": "editorTextFocus && (resourceFilename =~ /.*-req\\.http$/ || resourceExtname == .tp)"
       },
       {
         "command": "teapie-extensions.cycleTestFiles",
@@ -381,7 +382,7 @@
         "command": "teapie-extensions.runHttpRequest",
         "key": "f8",
         "mac": "f8",
-        "when": "editorTextFocus && resourceExtname == .http"
+        "when": "editorTextFocus && (resourceExtname == .http || resourceExtname == .tp)"
       }
     ],
     "languages": [
@@ -390,6 +391,16 @@
         "extensions": [".http"],
         "aliases": ["HTTP", "http"],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "tp",
+        "extensions": [".tp"],
+        "aliases": ["TeaPie Test", "tp"],
+        "configuration": "./tp-language-configuration.json",
+        "icon": {
+          "light": "./resources/tp-icon.svg",
+          "dark": "./resources/tp-icon.svg"
+        }
       }
     ],
     "grammars": [
@@ -397,12 +408,26 @@
         "language": "http",
         "scopeName": "source.http",
         "path": "./syntaxes/http.tmLanguage.json"
+      },
+      {
+        "language": "tp",
+        "scopeName": "source.tp",
+        "path": "./syntaxes/tp.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.section.init.tp": "csharp",
+          "meta.section.test.tp": "csharp",
+          "meta.section.http.tp": "http"
+        }
       }
     ],
     "snippets": [
       {
         "language": "csharp",
         "path": "./snippets/csharp.json"
+      },
+      {
+        "language": "tp",
+        "path": "./snippets/tp.json"
       }
     ],
     "iconDefinitions": {

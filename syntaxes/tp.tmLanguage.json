@@ -1,0 +1,83 @@
+{
+    "name": "TeaPie Test",
+    "scopeName": "source.tp",
+    "patterns": [
+        {
+            "include": "#testcase-marker"
+        },
+        {
+            "include": "#init-section"
+        },
+        {
+            "include": "#http-section"
+        },
+        {
+            "include": "#test-section"
+        },
+        {
+            "include": "#end-marker"
+        },
+        {
+            "include": "source.http"
+        }
+    ],
+    "repository": {
+        "testcase-marker": {
+            "match": "^(---)(\\s+)(TESTCASE)(\\s+(.*))?$",
+            "captures": {
+                "1": { "name": "punctuation.separator.section.tp" },
+                "3": { "name": "keyword.control.section.tp" },
+                "5": { "name": "entity.name.section.tp" }
+            }
+        },
+        "init-section": {
+            "begin": "^(---)(\\s+)(INIT)\\s*$",
+            "beginCaptures": {
+                "1": { "name": "punctuation.separator.section.tp" },
+                "3": { "name": "keyword.control.section.tp" }
+            },
+            "end": "^(?=---\\s+(?:HTTP|TEST|END|TESTCASE|INIT))",
+            "contentName": "meta.section.init.tp",
+            "patterns": [
+                {
+                    "include": "source.cs"
+                }
+            ]
+        },
+        "http-section": {
+            "begin": "^(---)(\\s+)(HTTP)\\s*$",
+            "beginCaptures": {
+                "1": { "name": "punctuation.separator.section.tp" },
+                "3": { "name": "keyword.control.section.tp" }
+            },
+            "end": "^(?=---\\s+(?:INIT|TEST|END|TESTCASE|HTTP))",
+            "contentName": "meta.section.http.tp",
+            "patterns": [
+                {
+                    "include": "source.http"
+                }
+            ]
+        },
+        "test-section": {
+            "begin": "^(---)(\\s+)(TEST)\\s*$",
+            "beginCaptures": {
+                "1": { "name": "punctuation.separator.section.tp" },
+                "3": { "name": "keyword.control.section.tp" }
+            },
+            "end": "^(?=---\\s+(?:INIT|HTTP|END|TESTCASE|TEST))",
+            "contentName": "meta.section.test.tp",
+            "patterns": [
+                {
+                    "include": "source.cs"
+                }
+            ]
+        },
+        "end-marker": {
+            "match": "^(---)(\\s+)(END)\\s*$",
+            "captures": {
+                "1": { "name": "punctuation.separator.section.tp" },
+                "3": { "name": "keyword.control.section.tp" }
+            }
+        }
+    }
+}

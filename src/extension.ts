@@ -8,6 +8,8 @@ import { TestResultItem, TestResultsProvider } from './TestResultsProvider';
 import { EnvironmentEditorProvider } from './EnvironmentEditorProvider';
 import { HttpCompletionProvider } from './HttpCompletionProvider';
 import { HttpHoverProvider } from './HttpHoverProvider';
+import { TpCompletionProvider } from './TpCompletionProvider';
+import { TpHoverProvider } from './TpHoverProvider';
 import { HttpPreviewProvider } from './HttpPreviewProvider';
 import { HttpRequestRunner } from './HttpRequestRunner';
 import { TeaPieInitializer } from './utils/TeaPieInitializer';
@@ -68,7 +70,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Load variables for HTTP files
     const loadVariablesForFile = async (document: vscode.TextDocument, forceReload: boolean = false) => {
-        if (document.languageId === 'http') {
+        if (document.languageId === 'http' || document.languageId === 'tp') {
             const variablesProvider = VariablesProvider.getInstance();
 
             // Check if TeaPie directory exists, only try to load variables if it does
@@ -99,7 +101,7 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     // Load variables for the currently open file if it's an HTTP file
-    if (vscode.window.activeTextEditor?.document.languageId === 'http') {
+    if (vscode.window.activeTextEditor?.document.languageId === 'http' || vscode.window.activeTextEditor?.document.languageId === 'tp') {
         loadVariablesForFile(vscode.window.activeTextEditor.document, false);
     }
 
@@ -240,7 +242,10 @@ export async function activate(context: vscode.ExtensionContext) {
             if (item instanceof vscode.Uri) {
                 const filePath = item.fsPath;
                 outputChannel.appendLine(`Processing URI path: ${filePath}`);
-                if (filePath.endsWith('-test.csx')) {
+                if (filePath.endsWith('.tp')) {
+                    targetPath = filePath;
+                    outputChannel.appendLine(`Using .tp file directly: ${targetPath}`);
+                } else if (filePath.endsWith('-test.csx')) {
                     // If it's a test file, find the corresponding HTTP file
                     const httpFile = filePath.replace('-test.csx', '-req.http');
                     outputChannel.appendLine(`Looking for HTTP file: ${httpFile}`);
@@ -296,7 +301,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
             if (item instanceof vscode.Uri) {
                 const filePath = item.fsPath;
-                if (filePath.endsWith('-test.csx')) {
+                if (filePath.endsWith('.tp')) {
+                    targetPath = filePath;
+                } else if (filePath.endsWith('-test.csx')) {
                     // If it's a test file, find the corresponding HTTP file
                     const httpFile = filePath.replace('-test.csx', '-req.http');
                     if (fs.existsSync(httpFile)) {
@@ -559,8 +566,8 @@ export async function activate(context: vscode.ExtensionContext) {
                 uri = editor.document.uri;
             }
 
-            if (uri.scheme !== 'file' || !uri.fsPath.endsWith('.http')) {
-                vscode.window.showErrorMessage('Please open a .http file first');
+            if (uri.scheme !== 'file' || !(uri.fsPath.endsWith('.http') || uri.fsPath.endsWith('.tp'))) {
+                vscode.window.showErrorMessage('Please open a .http or .tp file first');
                 return;
             }
 
@@ -635,10 +642,27 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    // Register .tp completion provider
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            'tp',
+            new TpCompletionProvider(),
+            '@', '#', ':', '.', '-'
+        )
+    );
+
+    // Register .tp hover provider
+    context.subscriptions.push(
+        vscode.languages.registerHoverProvider(
+            'tp',
+            new TpHoverProvider()
+        )
+    );
+
     // Register the command to run HTTP tests
     let runHttpTestDisposable = vscode.commands.registerCommand('teapie-extensions.runHttpTest', async () => {
         const editor = vscode.window.activeTextEditor;
-        if (editor && editor.document.languageId === 'http') {
+        if (editor && (editor.document.languageId === 'http' || editor.document.languageId === 'tp')) {
             const filePath = editor.document.uri.fsPath;
             await runTeaPieTest(filePath);
         }
@@ -647,7 +671,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register the command to run HTTP requests and show results
     let runHttpRequestDisposable = vscode.commands.registerCommand('teapie-extensions.runHttpRequest', async () => {
         const editor = vscode.window.activeTextEditor;
-        if (editor && editor.document.languageId === 'http') {
+        if (editor && (editor.document.languageId === 'http' || editor.document.languageId === 'tp')) {
             await HttpRequestRunner.runHttpFile(editor.document.uri);
         }
     });
@@ -839,6 +863,11 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 function findHttpFile(filePath: string): string | null {
+    // .tp files are self-contained test cases
+    if (filePath.endsWith('.tp')) {
+        return filePath;
+    }
+
     const dir = path.dirname(filePath);
     const baseName = path.basename(filePath, path.extname(filePath));
 
@@ -856,6 +885,11 @@ function findHttpFile(filePath: string): string | null {
 }
 
 function findNextTestFile(currentFile: string): string | null {
+    // .tp files are self-contained, no cycling needed
+    if (currentFile.endsWith('.tp')) {
+        return null;
+    }
+
     const dir = path.dirname(currentFile);
     const baseName = path.basename(currentFile);
     const baseNameWithoutExt = baseName.substring(0, baseName.lastIndexOf('-') !== -1 ? baseName.lastIndexOf('-') : baseName.lastIndexOf('.'));
@@ -901,8 +935,8 @@ async function findNextTestCase(currentFile: string, includeSubdirs: boolean): P
         return null;
     }
 
-    // Get all .http files in the workspace
-    const httpFiles = await vscode.workspace.findFiles('**/*-req.http');
+    // Get all test files in the workspace (.http and .tp)
+    const httpFiles = await vscode.workspace.findFiles('{**/*-req.http,**/*.tp}');
     if (httpFiles.length === 0) {
         return null;
     }
