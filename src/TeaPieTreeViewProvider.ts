@@ -122,28 +122,40 @@ export class TeaPieTreeViewProvider implements vscode.TreeDataProvider<TeaPieTre
                         ));
                     }
                 } else if (this.isTestFile(entry.name)) {
-                    // Extract test case name and type
-                    const match = entry.name.match(/^(.+?)-(init|req|test)\.(csx|http)$/);
-                    if (match) {
-                        const [, name, type] = match;
-                        if (!testCases.has(name)) {
-                            testCases.set(name, {
-                                name,
-                                files: {},
-                                directory: dirPath
-                            });
-                        }
-                        const testCase = testCases.get(name)!;
-                        switch (type) {
-                            case 'init':
-                                testCase.files.init = fullPath;
-                                break;
-                            case 'req':
-                                testCase.files.request = fullPath;
-                                break;
-                            case 'test':
-                                testCase.files.test = fullPath;
-                                break;
+                    if (entry.name.endsWith('.tp')) {
+                        // .tp files are self-contained test cases
+                        const name = path.basename(entry.name, '.tp');
+                        const item = new TeaPieTreeItem(
+                            this.formatPascalCase(name),
+                            vscode.Uri.file(fullPath),
+                            vscode.TreeItemCollapsibleState.None,
+                            'tpFile'
+                        );
+                        items.push(item);
+                    } else {
+                        // Extract test case name and type
+                        const match = entry.name.match(/^(.+?)-(init|req|test)\.(csx|http)$/);
+                        if (match) {
+                            const [, name, type] = match;
+                            if (!testCases.has(name)) {
+                                testCases.set(name, {
+                                    name,
+                                    files: {},
+                                    directory: dirPath
+                                });
+                            }
+                            const testCase = testCases.get(name)!;
+                            switch (type) {
+                                case 'init':
+                                    testCase.files.init = fullPath;
+                                    break;
+                                case 'req':
+                                    testCase.files.request = fullPath;
+                                    break;
+                                case 'test':
+                                    testCase.files.test = fullPath;
+                                    break;
+                            }
                         }
                     }
                 }
@@ -235,7 +247,8 @@ export class TeaPieTreeViewProvider implements vscode.TreeDataProvider<TeaPieTre
     private isTestFile(fileName: string): boolean {
         return fileName.endsWith('-init.csx') ||
             fileName.endsWith('-req.http') ||
-            fileName.endsWith('-test.csx');
+            fileName.endsWith('-test.csx') ||
+            fileName.endsWith('.tp');
     }
 }
 
@@ -246,7 +259,7 @@ export class TeaPieTreeItem extends vscode.TreeItem {
         public readonly label: string,
         resourceUri: vscode.Uri,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly itemType?: 'directory' | 'testCase' | 'initFile' | 'httpFile' | 'testFile'
+        public readonly itemType?: 'directory' | 'testCase' | 'initFile' | 'httpFile' | 'testFile' | 'tpFile'
     ) {
         super(resourceUri, collapsibleState);
         
@@ -270,7 +283,7 @@ export class TeaPieTreeItem extends vscode.TreeItem {
     }
 
     get httpFileUri(): vscode.Uri | undefined {
-        if (this.contextValue === 'httpFile') {
+        if (this.contextValue === 'httpFile' || this.contextValue === 'tpFile') {
             return this.resourceUri;
         }
         if (this.contextValue === 'testCase' && this.testCase?.files.request) {
@@ -293,7 +306,7 @@ export class TeaPieTreeItem extends vscode.TreeItem {
         if (this.isDirectory) {
             return new vscode.ThemeIcon('folder');
         }
-        if (this.contextValue === 'testCase') {
+        if (this.contextValue === 'testCase' || this.contextValue === 'tpFile') {
             return new vscode.ThemeIcon('beaker', new vscode.ThemeColor('testing.iconPassed'));
         }
         if (this.label === 'Initialize') {

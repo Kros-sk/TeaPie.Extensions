@@ -1,0 +1,55 @@
+{
+    "TeaPie Test Case": {
+        "prefix": "tptc",
+        "body": [
+            "--- TESTCASE ${1:TestName}",
+            "--- INIT",
+            "${2:// initialization code}",
+            "--- HTTP",
+            "${3:GET} {{host}}/${4:api/endpoint}",
+            "${5}",
+            "--- TEST",
+            "tp.TestExpectStatus(${6:200});",
+            "--- END"
+        ],
+        "description": "Full TeaPie test case with INIT, HTTP, and TEST sections"
+    },
+    "TeaPie HTTP Section": {
+        "prefix": "tphttp",
+        "body": [
+            "--- HTTP",
+            "${1:GET} {{host}}/${2:api/endpoint}",
+            "${0}"
+        ],
+        "description": "TeaPie HTTP section"
+    },
+    "TeaPie INIT Section": {
+        "prefix": "tpinit",
+        "body": [
+            "--- INIT",
+            "${0:// initialization code}"
+        ],
+        "description": "TeaPie INIT section for pre-request C# script"
+    },
+    "TeaPie TEST Section": {
+        "prefix": "tptest",
+        "body": [
+            "--- TEST",
+            "tp.TestExpectStatus(${1:200});",
+            "${0}"
+        ],
+        "description": "TeaPie TEST section for post-response C# assertions"
+    },
+    "TeaPie Simple Test Case": {
+        "prefix": "tpsimple",
+        "body": [
+            "--- HTTP",
+            "${1:GET} {{host}}/${2:api/endpoint}",
+            "",
+            "--- TEST",
+            "tp.TestExpectStatus(${3:200});",
+            "--- END"
+        ],
+        "description": "Simple TeaPie test case with HTTP and TEST sections only"
+    }
+}
